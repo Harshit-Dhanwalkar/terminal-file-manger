@@ -23,7 +23,8 @@ fn main() -> Result<(), io::Error> {
 
     // File Manager State
     let current_dir = std::env::current_dir()?;
-    let files = list_files(&current_dir)?;
+    let mut show_hidden = true;
+    let mut files = list_files(&current_dir, show_hidden)?;
     let mut state = ListState::default();
     state.select(Some(0));
 
@@ -52,7 +53,12 @@ fn main() -> Result<(), io::Error> {
                 KeyCode::Char('q') => break, // Quit the program
                 KeyCode::Down => move_selection(&mut state, 1, files.len()), // Move down
                 KeyCode::Up => move_selection(&mut state, -1, files.len()), // Move up
-                KeyCode::Char('r') => { /* Add refresh logic here if needed */ }
+                KeyCode::Char('.') => {
+                    // Toggle hidden files
+                    show_hidden = !show_hidden;
+                    files = list_files(&current_dir, show_hidden)?;
+                    state.select(Some(0));
+                }
                 _ => {}
             }
         }
@@ -67,10 +73,17 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn list_files(dir: &std::path::Path) -> io::Result<Vec<String>> {
+fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String>> {
     let entries = fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().into_string().unwrap_or_default())
+        .filter_map(|entry| {
+            let file_name = entry.file_name().into_string().ok()?;
+            if !show_hidden && file_name.starts_with('.') {
+                None
+            } else {
+                Some(file_name)
+            }
+        })
         .collect();
     Ok(entries)
 }
