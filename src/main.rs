@@ -9,7 +9,7 @@ use crossterm::{
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::{Block, Borders, List, ListItem},
     Terminal,
 };
 
@@ -25,17 +25,32 @@ fn main() -> Result<(), io::Error> {
     let current_dir = std::env::current_dir()?;
     let mut show_hidden = true;
     let mut files = list_files(&current_dir, show_hidden)?;
-    let mut state = ListState::default();
-    state.select(Some(0));
+    let mut cursor_position: usize = 0;
 
     loop {
+        // Get the selected file or directory
+        let selected_file = files.get(cursor_position).cloned();
+        let right_panel_contents = match &selected_file {
+            Some(file) => {
+                let full_path = current_dir.join(file);
+                if full_path.is_dir() {
+                    list_files(&full_path, show_hidden)
+                        .unwrap_or_else(|_| vec!["<Empty>".to_string()])
+                } else {
+                    vec!["<Not a directory>".to_string()]
+                }
+            }
+            None => vec!["<No Selection>".to_string()],
+        };
+
         // Draw UI
         terminal.draw(|f| {
             let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1)].as_ref())
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(f.size());
 
+            // Left Panel (File Listing)
             let items: Vec<ListItem> = files
                 .iter()
                 .map(|file| ListItem::new(file.clone()))
@@ -43,21 +58,42 @@ fn main() -> Result<(), io::Error> {
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("Files"))
                 .highlight_style(tui::style::Style::default().fg(tui::style::Color::Yellow))
-                .highlight_symbol(">> ");
+                .highlight_symbol(" ");
+
+            // Create ListState and set cursor position manually
+            let mut state = tui::widgets::ListState::default();
+            state.select(Some(cursor_position));
             f.render_stateful_widget(list, chunks[0], &mut state);
+
+            // Right Panel (Directory Contents)
+            let right_items: Vec<ListItem> = right_panel_contents
+                .iter()
+                .map(|item| ListItem::new(item.clone()))
+                .collect();
+            let right_panel = List::new(right_items)
+                .block(Block::default().borders(Borders::ALL).title("Contents"));
+            f.render_widget(right_panel, chunks[1]);
         })?;
 
         // Handle input
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => break, // Quit the program
-                KeyCode::Down => move_selection(&mut state, 1, files.len()), // Move down
-                KeyCode::Up => move_selection(&mut state, -1, files.len()), // Move up
+                KeyCode::Char('q') => break,
+                KeyCode::Down => {
+                    if cursor_position < files.len() - 1 {
+                        cursor_position += 1;
+                    }
+                }
+                KeyCode::Up => {
+                    if cursor_position > 0 {
+                        cursor_position -= 1;
+                    }
+                }
                 KeyCode::Char('.') => {
-                    // Toggle hidden files
                     show_hidden = !show_hidden;
                     files = list_files(&current_dir, show_hidden)?;
-                    state.select(Some(0));
+                    // Reset cursor position after toggle to avoid invalid selection
+                    cursor_position = 0;
                 }
                 _ => {}
             }
@@ -86,13 +122,4 @@ fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String
         })
         .collect();
     Ok(entries)
-}
-
-fn move_selection(state: &mut ListState, step: isize, max: usize) {
-    if let Some(selected) = state.selected() {
-        let new_index = (selected as isize + step).rem_euclid(max as isize) as usize;
-        state.select(Some(new_index));
-    } else {
-        state.select(Some(0));
-    }
 }
