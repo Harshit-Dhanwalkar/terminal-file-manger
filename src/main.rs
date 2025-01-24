@@ -22,7 +22,7 @@ fn main() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
 
     // File Manager State
-    let current_dir = std::env::current_dir()?;
+    let mut current_dir = std::env::current_dir()?;
     let mut show_hidden = true;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
@@ -79,21 +79,41 @@ fn main() -> Result<(), io::Error> {
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('q') => break,
-                KeyCode::Down => {
+                // Navigation with arrow keys and vim-like keys
+                KeyCode::Down | KeyCode::Char('j') => {
                     if cursor_position < files.len() - 1 {
                         cursor_position += 1;
                     }
                 }
-                KeyCode::Up => {
+                KeyCode::Up | KeyCode::Char('k') => {
                     if cursor_position > 0 {
                         cursor_position -= 1;
                     }
                 }
+                // Navigate into a directory (right or 'l')
+                KeyCode::Right | KeyCode::Char('l') => {
+                    if let Some(selected_file) = files.get(cursor_position) {
+                        let full_path = current_dir.join(selected_file);
+                        if full_path.is_dir() {
+                            current_dir = full_path;
+                            files = list_files(&current_dir, show_hidden)?;
+                            cursor_position = 0;
+                        }
+                    }
+                }
+                // Navigate back (left or 'h')
+                KeyCode::Left | KeyCode::Char('h') => {
+                    if let Some(parent) = current_dir.parent() {
+                        current_dir = parent.to_path_buf();
+                        files = list_files(&current_dir, show_hidden)?;
+                        cursor_position = 0;
+                    }
+                }
+                // Toggle hidden files
                 KeyCode::Char('.') => {
                     show_hidden = !show_hidden;
                     files = list_files(&current_dir, show_hidden)?;
-                    // Reset cursor position after toggle to avoid invalid selection
-                    cursor_position = 0;
+                    cursor_position = 0; // Reset cursor position after toggle
                 }
                 _ => {}
             }
