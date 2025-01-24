@@ -9,7 +9,7 @@ use crossterm::{
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, ListState},
     Terminal,
 };
 
@@ -23,7 +23,9 @@ fn main() -> Result<(), io::Error> {
 
     // File Manager State
     let current_dir = std::env::current_dir()?;
-    let mut files = list_files(&current_dir)?;
+    let files = list_files(&current_dir)?;
+    let mut state = ListState::default();
+    state.select(Some(0));
 
     loop {
         // Draw UI
@@ -37,16 +39,20 @@ fn main() -> Result<(), io::Error> {
                 .iter()
                 .map(|file| ListItem::new(file.clone()))
                 .collect();
-            let list =
-                List::new(items).block(Block::default().borders(Borders::ALL).title("Files"));
-            f.render_widget(list, chunks[0]);
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("Files"))
+                .highlight_style(tui::style::Style::default().fg(tui::style::Color::Yellow))
+                .highlight_symbol(">> ");
+            f.render_stateful_widget(list, chunks[0], &mut state);
         })?;
 
         // Handle input
         if let Event::Key(key) = event::read()? {
             match key.code {
-                KeyCode::Char('q') => break,
-                KeyCode::Char('r') => files = list_files(&current_dir)?, // Refresh
+                KeyCode::Char('q') => break, // Quit the program
+                KeyCode::Down => move_selection(&mut state, 1, files.len()), // Move down
+                KeyCode::Up => move_selection(&mut state, -1, files.len()), // Move up
+                KeyCode::Char('r') => { /* Add refresh logic here if needed */ }
                 _ => {}
             }
         }
@@ -67,4 +73,13 @@ fn list_files(dir: &std::path::Path) -> io::Result<Vec<String>> {
         .map(|entry| entry.file_name().into_string().unwrap_or_default())
         .collect();
     Ok(entries)
+}
+
+fn move_selection(state: &mut ListState, step: isize, max: usize) {
+    if let Some(selected) = state.selected() {
+        let new_index = (selected as isize + step).rem_euclid(max as isize) as usize;
+        state.select(Some(new_index));
+    } else {
+        state.select(Some(0));
+    }
 }
