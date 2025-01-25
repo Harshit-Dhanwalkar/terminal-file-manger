@@ -50,7 +50,24 @@ fn main() -> Result<(), io::Error> {
                     list_files(&full_path, show_hidden)
                         .unwrap_or_else(|_| vec!["<Empty>".to_string()])
                 } else {
-                    vec!["<Not a directory>".to_string()]
+                    //TODO: Use batcat to preview the file
+                    let output = std::process::Command::new("cat")
+                        // .arg("--style=numbers,changes")
+                        // .arg("--color=always")
+                        .arg(&full_path)
+                        .output();
+
+                    match output {
+                        Ok(output) if !output.stdout.is_empty() => {
+                            let lines = String::from_utf8_lossy(&output.stdout);
+                            lines
+                                .lines()
+                                .take(20)
+                                .map(|line| line.to_string())
+                                .collect()
+                        }
+                        _ => vec!["<Failed to preview file>".to_string()],
+                    }
                 }
             }
             None => vec!["<No Selection>".to_string()],
@@ -103,7 +120,6 @@ fn main() -> Result<(), io::Error> {
                         cursor_position -= 1;
                     }
                 }
-                // Navigate into a directory (right or 'l')
                 KeyCode::Right | KeyCode::Char('l') => {
                     if let Some(selected_file) = files.get(cursor_position) {
                         let full_path = current_dir.join(selected_file);
@@ -114,7 +130,6 @@ fn main() -> Result<(), io::Error> {
                         }
                     }
                 }
-                // Navigate back (left or 'h')
                 KeyCode::Left | KeyCode::Char('h') => {
                     if let Some(parent) = current_dir.parent() {
                         current_dir = parent.to_path_buf();

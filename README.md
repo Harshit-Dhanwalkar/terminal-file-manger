@@ -29,8 +29,9 @@ cargo run -- --cwd-file=path.txt
 | `.`            | Toggle visibility of hidden files          |
 
 ## To-Do List
+- [x] Implement file preview for text files.
+- [ ] Use colors for directories and files.
 - [ ] Add support for file operations (copy, move, delete).
-- [ ] Implement file preview for text files.
 - [ ] Add search functionality.
 - [ ] Improve error handling and logging.
 - [ ] Customize themes and colors.
