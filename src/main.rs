@@ -1,4 +1,9 @@
-use std::{fs, io};
+use std::env;
+use std::fs;
+
+use std::io::{self, Write};
+
+use std::path::{Path, PathBuf};
 
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -20,6 +25,14 @@ fn main() -> Result<(), io::Error> {
     execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    // Parse arguments
+    let mut cwd_file: Option<PathBuf> = None;
+    for arg in env::args().skip(1) {
+        if arg.starts_with("--cwd-file=") {
+            cwd_file = Some(PathBuf::from(arg.trim_start_matches("--cwd-file=")));
+        }
+    }
 
     // File Manager State
     let mut current_dir = std::env::current_dir()?;
@@ -81,7 +94,7 @@ fn main() -> Result<(), io::Error> {
                 KeyCode::Char('q') => break,
                 // Navigation with arrow keys and vim-like keys
                 KeyCode::Down | KeyCode::Char('j') => {
-                    if cursor_position < files.len() - 1 {
+                    if cursor_position < files.len().saturating_sub(1) {
                         cursor_position += 1;
                     }
                 }
@@ -113,7 +126,7 @@ fn main() -> Result<(), io::Error> {
                 KeyCode::Char('.') => {
                     show_hidden = !show_hidden;
                     files = list_files(&current_dir, show_hidden)?;
-                    cursor_position = 0; // Reset cursor position after toggle
+                    cursor_position = 0;
                 }
                 _ => {}
             }
@@ -126,6 +139,14 @@ fn main() -> Result<(), io::Error> {
         terminal.backend_mut(),
         crossterm::terminal::LeaveAlternateScreen
     )?;
+
+    // Write the final directory to the cwd file if specified
+    if let Some(cwd_file) = cwd_file {
+        if let Err(e) = fs::write(&cwd_file, current_dir.to_string_lossy().as_bytes()) {
+            eprintln!("Failed to write to cwd file: {}", e);
+        }
+    }
+
     Ok(())
 }
 
