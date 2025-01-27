@@ -1,7 +1,8 @@
 use std::env;
 use std::fs;
 
-use std::io::{self, Write};
+use std::io;
+// use std::io::{self, Write};
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,9 @@ fn main() -> Result<(), io::Error> {
 
     // Parse arguments
     let mut cwd_file: Option<PathBuf> = None;
+    if !Path::new("src/path.txt").exists() {
+        eprintln!("path.txt not found in src directory");
+    }
     for arg in env::args().skip(1) {
         if arg.starts_with("--cwd-file=") {
             cwd_file = Some(PathBuf::from(arg.trim_start_matches("--cwd-file=")));

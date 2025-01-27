@@ -26,7 +26,8 @@ cargo run -- --cwd-file=path.txt
 | `↑` or `k`     | Move up in the file list                   |
 | `→` or `l`     | Enter the selected directory               |
 | `←` or `h`     | Navigate back to the parent directory      |
-| `.`            | Toggle visibility of hidden files          |
+|   `Enter`      | Opens the file                              |
+|     `.`        | Toggle visibility of hidden files          |
 
 ## To-Do List
 - [x] Implement file preview for text files.
