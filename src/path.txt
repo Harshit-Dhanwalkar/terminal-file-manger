@@ -1,1 +1,1 @@
-/home/harshitpd/Pictures
+/home/harshitpd/Desktop/back_ups/nvim_dev_clone/lua/config

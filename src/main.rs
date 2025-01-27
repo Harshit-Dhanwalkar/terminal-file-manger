@@ -32,10 +32,28 @@ fn main() -> Result<(), io::Error> {
     let mut terminal = Terminal::new(backend)?;
 
     // Parse arguments
-    let mut cwd_file: Option<PathBuf> = None;
-    if !Path::new("src/path.txt").exists() {
-        eprintln!("path.txt not found in src directory");
+    let project_dir = env::current_dir()?; // Get current directory
+    let path_file = project_dir.join("src/path.txt");
+    let config_file = project_dir.join("src/opener.toml");
+
+    if !path_file.exists() {
+        eprintln!("Error: path.txt not found in {}", path_file.display());
+        return Ok(());
     }
+
+    if !config_file.exists() {
+        eprintln!("Error: opener.toml not found in {}", config_file.display());
+        return Ok(());
+    }
+    // TEST:
+    // Read the files
+    // let path_contents = fs::read_to_string(path_file)?;
+    // println!("path.txt contents: {}", path_contents);
+    //
+    // let config_contents = fs::read_to_string(config_file)?;
+    // println!("opener.toml contents: {}", config_contents);
+
+    let mut cwd_file: Option<PathBuf> = None;
     for arg in env::args().skip(1) {
         if arg.starts_with("--cwd-file=") {
             cwd_file = Some(PathBuf::from(arg.trim_start_matches("--cwd-file=")));
