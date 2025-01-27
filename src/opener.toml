@@ -1,6 +1,8 @@
 [openers]
 py = "nvim"
+lua = "nvim"
 cpp = "nvim"
+tex = "nvim"
 html = "nvim"
 css = "nvim"
 js = "nvim"

@@ -19,39 +19,40 @@ use tui::{
     Terminal,
 };
 
-// use std::collections::HashMap;
-// use std::process::Command;
-// use toml::Value;
+use std::collections::HashMap;
+use std::process::Command;
+use toml::Value;
 
 fn main() -> Result<(), io::Error> {
+    // Parse arguments
+    let project_dir = env::current_dir().unwrap();
+    // println!("Project directory: {}", project_dir.display());
+    let path_file = project_dir.join("src").join("path.txt");
+    // println!("Looking for file at: {}", path_file.display());
+    if !path_file.exists() {
+        eprintln!("Error: path.txt not found in {}", path_file.display());
+        return Ok(());
+    }
+    // let path_contents = fs::read_to_string(path_file)?;
+    // println!("path.txt contents: {}", path_contents);
+    let opener_config_path = project_dir.join("src").join("opener.toml");
+    if !opener_config_path.exists() {
+        eprintln!(
+            "Error: opener.toml not found in {}",
+            opener_config_path.display()
+        );
+        return Ok(());
+    }
+    // Load opener configuration
+    let opener_config = load_opener_config(&opener_config_path)?;
+    println!("Loaded opener.toml configuration");
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
-    // Parse arguments
-    let project_dir = env::current_dir()?; // Get current directory
-    let path_file = project_dir.join("src/path.txt");
-    let config_file = project_dir.join("src/opener.toml");
-
-    if !path_file.exists() {
-        eprintln!("Error: path.txt not found in {}", path_file.display());
-        return Ok(());
-    }
-
-    if !config_file.exists() {
-        eprintln!("Error: opener.toml not found in {}", config_file.display());
-        return Ok(());
-    }
-    // TEST:
-    // Read the files
-    // let path_contents = fs::read_to_string(path_file)?;
-    // println!("path.txt contents: {}", path_contents);
-    //
-    // let config_contents = fs::read_to_string(config_file)?;
-    // println!("opener.toml contents: {}", config_contents);
 
     let mut cwd_file: Option<PathBuf> = None;
     for arg in env::args().skip(1) {
@@ -61,7 +62,7 @@ fn main() -> Result<(), io::Error> {
     }
 
     // File Manager State
-    // // Determine initial directory
+    // let mut current_dir = std::env::current_dir()?;
     let mut current_dir = match cwd_file {
         Some(ref path) if path.exists() => {
             match fs::read_to_string(path) {
@@ -85,46 +86,13 @@ fn main() -> Result<(), io::Error> {
         }
         _ => std::env::current_dir()?,
     };
-    // let mut current_dir = std::env::current_dir()?;
     let mut show_hidden = true;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
 
-    // Load the `opener.toml` configuration
-    // let opener_config = load_opener_config("opener.toml")?;
-
     loop {
         // Get the selected file or directory
         let selected_file = files.get(cursor_position).cloned();
-        let right_panel_contents = match &selected_file {
-            Some(file) => {
-                let full_path = current_dir.join(file);
-                if full_path.is_dir() {
-                    list_files(&full_path, show_hidden)
-                        .unwrap_or_else(|_| vec!["<Empty>".to_string()])
-                } else {
-                    // TODO: Use batcat to preview the file
-                    let output = std::process::Command::new("cat")
-                        // .arg("--style=numbers,changes")
-                        // .arg("--color=always")
-                        .arg(&full_path)
-                        .output();
-
-                    match output {
-                        Ok(output) if !output.stdout.is_empty() => {
-                            let lines = String::from_utf8_lossy(&output.stdout);
-                            lines
-                                .lines()
-                                .take(20)
-                                .map(|line| line.to_string())
-                                .collect()
-                        }
-                        _ => vec!["<Failed to preview file>".to_string()],
-                    }
-                }
-            }
-            None => vec!["<No Selection>".to_string()],
-        };
 
         // Draw UI
         terminal.draw(|f| {
@@ -149,12 +117,38 @@ fn main() -> Result<(), io::Error> {
             f.render_stateful_widget(list, chunks[0], &mut state);
 
             // Right Panel (Directory Contents)
-            let right_items: Vec<ListItem> = right_panel_contents
-                .iter()
-                .map(|item| ListItem::new(item.clone()))
-                .collect();
-            let right_panel = List::new(right_items)
-                .block(Block::default().borders(Borders::ALL).title("Contents"));
+            let right_panel = match &selected_file {
+                Some(file) => {
+                    let full_path = current_dir.join(file);
+                    if full_path.is_dir() {
+                        let items = list_files(&full_path, show_hidden)
+                            .unwrap_or_else(|_| vec!["<Empty>".to_string()]);
+                        let list = List::new(
+                            items
+                                .into_iter()
+                                .map(ListItem::new)
+                                .collect::<Vec<ListItem>>(),
+                        )
+                        .block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .title("Directory Contents"),
+                        );
+                        list
+                    } else {
+                        let preview = preview_file(&full_path);
+                        let list = List::new(
+                            preview
+                                .into_iter()
+                                .map(ListItem::new)
+                                .collect::<Vec<ListItem>>(),
+                        )
+                        .block(Block::default().borders(Borders::ALL).title("File Preview"));
+                        list
+                    }
+                }
+                None => List::new(vec![]),
+            };
             f.render_widget(right_panel, chunks[1]);
         })?;
 
@@ -191,14 +185,14 @@ fn main() -> Result<(), io::Error> {
                     }
                 }
                 // file Opener
-                // KeyCode::Enter => {
-                //     if let Some(selected_file) = files.get(cursor_position) {
-                //         let full_path = current_dir.join(selected_file);
-                //         if !full_path.is_dir() {
-                //             open_file(&full_path, &opener_config);
-                //         }
-                //     }
-                // }
+                KeyCode::Enter => {
+                    if let Some(selected_file) = files.get(cursor_position) {
+                        let full_path = current_dir.join(selected_file);
+                        if !full_path.is_dir() {
+                            open_file(&full_path, &opener_config);
+                        }
+                    }
+                }
                 // Toggle hidden files
                 KeyCode::Char('.') => {
                     show_hidden = !show_hidden;
@@ -227,6 +221,20 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
+// Function to preview a file
+fn preview_file(file_path: &Path) -> Vec<String> {
+    // TODO: Use batcat to preview the file
+    let output = Command::new("cat").arg(file_path).output();
+    match output {
+        Ok(output) if !output.stdout.is_empty() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .take(20)
+            .map(|line| line.to_string())
+            .collect(),
+        _ => vec!["<Failed to preview file>".to_string()],
+    }
+}
+
 // Function to toggle hidden files
 fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String>> {
     let entries = fs::read_dir(dir)?
@@ -244,41 +252,39 @@ fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String
 }
 
 // Function to load `opener.toml`
-// fn load_opener_config(config_path: &str) -> Result<HashMap<String, String>, io::Error> {
-//     let toml_contents = fs::read_to_string(config_path)?;
-//     let value: Value = toml_contents
-//         .parse::<Value>()
-//         .expect("Invalid TOML file format");
-//     let openers = value
-//         .get("openers")
-//         .expect("Missing [openers] section in opener.toml")
-//         .as_table()
-//         .expect("Invalid TOML table format")
-//         .iter()
-//         .map(|(key, val)| {
-//             (
-//                 key.clone(),
-//                 val.as_str()
-//                     .expect("Values in [openers] must be strings")
-//                     .to_string(),
-//             )
-//         })
-//         .collect();
-//     Ok(openers)
-// }
-//
+fn load_opener_config(config_path: &Path) -> Result<HashMap<String, String>, io::Error> {
+    let toml_contents = fs::read_to_string(config_path)?;
+    let value: Value = toml_contents.parse::<Value>().expect("Invalid TOML format");
+    let openers = value
+        .get("openers")
+        .expect("Missing [openers] section in opener.toml")
+        .as_table()
+        .expect("Invalid TOML table format")
+        .iter()
+        .map(|(key, val)| {
+            (
+                key.clone(),
+                val.as_str()
+                    .expect("Values in [openers] must be strings")
+                    .to_string(),
+            )
+        })
+        .collect();
+    Ok(openers)
+}
+
 // Function to open a file based on its extension
-// fn open_file(file_path: &Path, opener_config: &HashMap<String, String>) {
-//     if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
-//         if let Some(opener) = opener_config.get(ext) {
-//             let _ = Command::new(opener)
-//                 .arg(file_path)
-//                 .spawn()
-//                 .expect("Failed to open file with specified program");
-//         } else {
-//             eprintln!("No opener configured for extension: {}", ext);
-//         }
-//     } else {
-//         eprintln!("File has no extension: {}", file_path.display());
-//     }
-// }
+fn open_file(file_path: &Path, opener_config: &HashMap<String, String>) {
+    if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
+        if let Some(opener) = opener_config.get(ext) {
+            let _ = Command::new(opener)
+                .arg(file_path)
+                .spawn()
+                .expect("Failed to open file with specified program");
+        } else {
+            eprintln!("No opener configured for extension: {}", ext);
+        }
+    } else {
+        eprintln!("File has no extension: {}", file_path.display());
+    }
+}
