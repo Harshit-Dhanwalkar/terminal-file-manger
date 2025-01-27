@@ -35,7 +35,31 @@ fn main() -> Result<(), io::Error> {
     }
 
     // File Manager State
-    let mut current_dir = std::env::current_dir()?;
+    // // Determine initial directory
+    let mut current_dir = match cwd_file {
+        Some(ref path) if path.exists() => {
+            match fs::read_to_string(path) {
+                Ok(content) => {
+                    let dir = PathBuf::from(content.trim());
+                    if dir.is_dir() {
+                        dir
+                    } else {
+                        eprintln!("Path in cwd file is not a directory. Falling back to current directory.");
+                        std::env::current_dir()?
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed to read cwd file: {}. Falling back to current directory.",
+                        e
+                    );
+                    std::env::current_dir()?
+                }
+            }
+        }
+        _ => std::env::current_dir()?,
+    };
+    // let mut current_dir = std::env::current_dir()?;
     let mut show_hidden = true;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
@@ -50,7 +74,7 @@ fn main() -> Result<(), io::Error> {
                     list_files(&full_path, show_hidden)
                         .unwrap_or_else(|_| vec!["<Empty>".to_string()])
                 } else {
-                    //TODO: Use batcat to preview the file
+                    // TODO: Use batcat to preview the file
                     let output = std::process::Command::new("cat")
                         // .arg("--style=numbers,changes")
                         // .arg("--color=always")

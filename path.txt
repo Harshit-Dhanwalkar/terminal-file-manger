@@ -1,1 +1,1 @@
-/home/harshitpd/Documents/GITHUB/terminal-file-manger/target/debug
+/home/harshitpd/Documents/GITHUB

@@ -5,7 +5,7 @@ A simple terminal-based file manager built with Rust, using the `tui` and `cross
 ## Features
 - Navigate through files and directories.
 - Toggle display of hidden files.
-- Display contents of selected directories in a separate panel.
+- Display contents of selected directory and file in a separate panel.
 - Save the final working directory to a specified file.
 
 ## Usage
