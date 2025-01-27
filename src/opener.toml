@@ -1,0 +1,8 @@
+[openers]
+py = "nvim"
+cpp = "nvim"
+html = "nvim"
+css = "nvim"
+js = "nvim"
+ipynb = "code"
+pdf = "zathura"

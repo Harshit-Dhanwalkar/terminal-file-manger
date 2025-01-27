@@ -18,6 +18,10 @@ use tui::{
     Terminal,
 };
 
+// use std::collections::HashMap;
+// use std::process::Command;
+// use toml::Value;
+
 fn main() -> Result<(), io::Error> {
     // Setup terminal
     enable_raw_mode()?;
@@ -63,6 +67,9 @@ fn main() -> Result<(), io::Error> {
     let mut show_hidden = true;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
+
+    // Load the `opener.toml` configuration
+    // let opener_config = load_opener_config("opener.toml")?;
 
     loop {
         // Get the selected file or directory
@@ -161,6 +168,15 @@ fn main() -> Result<(), io::Error> {
                         cursor_position = 0;
                     }
                 }
+                // file Opener
+                // KeyCode::Enter => {
+                //     if let Some(selected_file) = files.get(cursor_position) {
+                //         let full_path = current_dir.join(selected_file);
+                //         if !full_path.is_dir() {
+                //             open_file(&full_path, &opener_config);
+                //         }
+                //     }
+                // }
                 // Toggle hidden files
                 KeyCode::Char('.') => {
                     show_hidden = !show_hidden;
@@ -189,6 +205,7 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
+// Function to toggle hidden files
 fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String>> {
     let entries = fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())
@@ -203,3 +220,43 @@ fn list_files(dir: &std::path::Path, show_hidden: bool) -> io::Result<Vec<String
         .collect();
     Ok(entries)
 }
+
+// Function to load `opener.toml`
+// fn load_opener_config(config_path: &str) -> Result<HashMap<String, String>, io::Error> {
+//     let toml_contents = fs::read_to_string(config_path)?;
+//     let value: Value = toml_contents
+//         .parse::<Value>()
+//         .expect("Invalid TOML file format");
+//     let openers = value
+//         .get("openers")
+//         .expect("Missing [openers] section in opener.toml")
+//         .as_table()
+//         .expect("Invalid TOML table format")
+//         .iter()
+//         .map(|(key, val)| {
+//             (
+//                 key.clone(),
+//                 val.as_str()
+//                     .expect("Values in [openers] must be strings")
+//                     .to_string(),
+//             )
+//         })
+//         .collect();
+//     Ok(openers)
+// }
+//
+// Function to open a file based on its extension
+// fn open_file(file_path: &Path, opener_config: &HashMap<String, String>) {
+//     if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
+//         if let Some(opener) = opener_config.get(ext) {
+//             let _ = Command::new(opener)
+//                 .arg(file_path)
+//                 .spawn()
+//                 .expect("Failed to open file with specified program");
+//         } else {
+//             eprintln!("No opener configured for extension: {}", ext);
+//         }
+//     } else {
+//         eprintln!("File has no extension: {}", file_path.display());
+//     }
+// }

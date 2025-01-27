@@ -30,6 +30,7 @@ cargo run -- --cwd-file=path.txt
 
 ## To-Do List
 - [x] Implement file preview for text files.
+- [ ] Add file handling to operations.
 - [ ] Use colors for directories and files.
 - [ ] Add support for file operations (copy, move, delete).
 - [ ] Add search functionality.
