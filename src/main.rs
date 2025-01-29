@@ -23,6 +23,9 @@ use std::collections::HashMap;
 use std::process::Command;
 use toml::Value;
 
+// For date and time
+// use chrono::Local;
+
 fn main() -> Result<(), io::Error> {
     // Parse arguments
     let project_dir = env::current_dir().unwrap();
@@ -90,6 +93,9 @@ fn main() -> Result<(), io::Error> {
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
 
+    // Get current date and time
+    // let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
     loop {
         // Get the selected file or directory
         let selected_file = files.get(cursor_position).cloned();
@@ -100,6 +106,12 @@ fn main() -> Result<(), io::Error> {
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(f.size());
+
+            // Divide the right panel into two sections (3:4 ratio)
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+                .split(chunks[1]);
 
             // Left Panel (File Listing)
             let items: Vec<ListItem> = files
@@ -116,8 +128,8 @@ fn main() -> Result<(), io::Error> {
             state.select(Some(cursor_position));
             f.render_stateful_widget(list, chunks[0], &mut state);
 
-            // Right Panel (Directory Contents)
-            let right_panel = match &selected_file {
+            // Upper Right Panel (Directory Contents)
+            let upper_right_panel = match &selected_file {
                 Some(file) => {
                     let full_path = current_dir.join(file);
                     if full_path.is_dir() {
@@ -149,7 +161,17 @@ fn main() -> Result<(), io::Error> {
                 }
                 None => List::new(vec![]),
             };
-            f.render_widget(right_panel, chunks[1]);
+            f.render_widget(upper_right_panel, chunks[1]);
+
+            // TODO:
+            // Lower Right Panel
+            // let lower_right_panel =
+            //     List::new(vec![ListItem::new(format!("Time {}", current_time))])
+            //         .block(Block::default().borders(Borders::ALL).title("Extra Panel"));
+            // f.render_widget(lower_right_panel, right_chunks[1]);
+            let lower_right_panel = List::new(vec![ListItem::new("To be updated")])
+                .block(Block::default().borders(Borders::ALL).title("New Panel"));
+            f.render_widget(lower_right_panel, right_chunks[1]);
         })?;
 
         // Handle input
