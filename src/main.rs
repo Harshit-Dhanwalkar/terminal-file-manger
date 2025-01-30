@@ -8,8 +8,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::collections::HashMap;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use toml::Value;
 use tui::{
     backend::CrosstermBackend,
@@ -327,15 +328,48 @@ fn open_file(file_path: &Path, opener_config: &HashMap<String, (String, String)>
 }
 
 // Function to preview a file
+// fn preview_file(file_path: &Path) -> Vec<String> {
+//     // TODO: Use batcat to preview the file
+//     let output = Command::new("cat").arg(file_path).output();
+//     match output {
+//         Ok(output) if !output.stdout.is_empty() => String::from_utf8_lossy(&output.stdout)
+//             .lines()
+//             .take(20)
+//             .map(|line| line.to_string())
+//             .collect(),
+//         _ => vec!["<Failed to preview file>".to_string()],
+//     }
+// }
 fn preview_file(file_path: &Path) -> Vec<String> {
-    // TODO: Use batcat to preview the file
-    let output = Command::new("cat").arg(file_path).output();
-    match output {
-        Ok(output) if !output.stdout.is_empty() => String::from_utf8_lossy(&output.stdout)
+    // Attempt to preview the file with batcat (bat), falling back to cat if bat is unavailable
+    let output = match Command::new("batcat")
+        .arg("--style=plain")
+        .arg("--color=always")
+        .arg(file_path)
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => {
+            // Fallback to using cat if bat fails
+            Command::new("cat")
+                .arg(file_path)
+                .output()
+                .unwrap_or_else(|_| Output {
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                    status: std::process::ExitStatus::from_raw(0),
+                })
+        }
+    };
+
+    // Check if the output has valid content
+    if !output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stdout)
             .lines()
             .take(20)
             .map(|line| line.to_string())
-            .collect(),
-        _ => vec!["<Failed to preview file>".to_string()],
+            .collect()
+    } else {
+        vec!["<Failed to preview file>".to_string()]
     }
 }
