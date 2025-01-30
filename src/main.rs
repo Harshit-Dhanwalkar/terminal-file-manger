@@ -15,6 +15,7 @@ use crossterm::{
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
+    style::{Color, Style},
     widgets::{Block, Borders, List, ListItem},
     Terminal,
 };
@@ -116,8 +117,28 @@ fn main() -> Result<(), io::Error> {
             // Left Panel (File Listing)
             let items: Vec<ListItem> = files
                 .iter()
-                .map(|file| ListItem::new(file.clone()))
+                .map(|file| {
+                    let style = if Path::new(&file).is_dir() {
+                        Style::default().fg(Color::Blue)
+                    } else if Path::new(&file)
+                        .extension()
+                        .map_or(false, |ext| ext == "txt")
+                    {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    ListItem::new(
+                        Path::new(&file)
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
+                    .style(style)
+                })
                 .collect();
+
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("Files"))
                 .highlight_style(tui::style::Style::default().fg(tui::style::Color::Yellow))
@@ -297,16 +318,16 @@ fn load_opener_config(config_path: &Path) -> Result<HashMap<String, String>, io:
 
 // Function to open a file based on its extension
 fn open_file(file_path: &Path, opener_config: &HashMap<String, String>) {
-    if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
-        if let Some(opener) = opener_config.get(ext) {
-            let _ = Command::new(opener)
+    if let Some(extension) = file_path.extension().and_then(|ext| ext.to_str()) {
+        if let Some(command) = opener_config.get(extension) {
+            let _ = Command::new(command)
                 .arg(file_path)
                 .spawn()
-                .expect("Failed to open file with specified program");
+                .expect("Failed to open file");
         } else {
-            eprintln!("No opener configured for extension: {}", ext);
+            eprintln!("No opener configured for .{} files", extension);
         }
     } else {
-        eprintln!("File has no extension: {}", file_path.display());
+        eprintln!("Could not determine file extension.");
     }
 }
