@@ -1,13 +1,13 @@
-use std::env;
-use std::fs;
-use std::io;
-// use std::io::{self, Write};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::io;
+// use std::io::{self, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -311,6 +311,7 @@ fn get_file_style(file: &str, opener_config: &HashMap<String, (String, String)>)
     }
     None
 }
+
 // Function to open a file based on its extension
 fn open_file(file_path: &Path, opener_config: &HashMap<String, (String, String)>) {
     if let Some(extension) = file_path.extension().and_then(|ext| ext.to_str()) {
@@ -328,23 +329,12 @@ fn open_file(file_path: &Path, opener_config: &HashMap<String, (String, String)>
 }
 
 // Function to preview a file
-// fn preview_file(file_path: &Path) -> Vec<String> {
-//     // TODO: Use batcat to preview the file
-//     let output = Command::new("cat").arg(file_path).output();
-//     match output {
-//         Ok(output) if !output.stdout.is_empty() => String::from_utf8_lossy(&output.stdout)
-//             .lines()
-//             .take(20)
-//             .map(|line| line.to_string())
-//             .collect(),
-//         _ => vec!["<Failed to preview file>".to_string()],
-//     }
-// }
 fn preview_file(file_path: &Path) -> Vec<String> {
     // Attempt to preview the file with batcat (bat), falling back to cat if bat is unavailable
     let output = match Command::new("batcat")
         .arg("--style=plain")
         .arg("--color=always")
+        .arg("--paging=never")
         .arg(file_path)
         .output()
     {

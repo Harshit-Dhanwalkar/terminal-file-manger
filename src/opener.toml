@@ -1,6 +1,6 @@
 [openers]
 txt = { opener = "nvim", color = "green" }
-py = { opener = "nvim", color = "green" }
+py = { opener = "nvim", color = "magenta" }
 rs = { opener = "nvim", color = "orange" }
 lua = { opener = "nvim", color = "green" }
 cpp = { opener = "nvim", color = "blue" }
