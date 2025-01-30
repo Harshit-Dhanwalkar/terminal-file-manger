@@ -1,10 +1,13 @@
 [openers]
-py = "nvim"
-lua = "nvim"
-cpp = "nvim"
-tex = "nvim"
-html = "nvim"
-css = "nvim"
-js = "nvim"
-ipynb = "code"
-pdf = "zathura"
+txt = { opener = "nvim", color = "green" }
+py = { opener = "nvim", color = "green" }
+rs = { opener = "nvim", color = "orange" }
+lua = { opener = "nvim", color = "green" }
+cpp = { opener = "nvim", color = "blue" }
+tex = { opener = "nvim", color = "red" }
+html = { opener = "nvim", color = "cyan" }
+css = { opener = "nvim", color = "magenta" }
+js = { opener = "nvim", color = "yellow" }
+toml = { opener = "nvim", color = "orange" }
+ipynb = { opener = "code", color = "purple" }
+pdf = { opener = "zathura", color = "orange" }
