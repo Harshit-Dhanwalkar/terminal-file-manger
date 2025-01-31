@@ -93,12 +93,13 @@ fn main() -> Result<(), io::Error> {
 
         // Draw UI
         terminal.draw(|f| {
+            // Split the terminal into two panels: left (50%) and right (50%)
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(f.size());
 
-            // Divide the right panel into two sections (3:4 ratio)
+            // Further split the right panel into upper and lower sections
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
@@ -125,22 +126,22 @@ fn main() -> Result<(), io::Error> {
 
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("Files"))
-                .highlight_style(tui::style::Style::default().fg(tui::style::Color::Yellow))
+                .highlight_style(Style::default().fg(Color::Yellow))
                 .highlight_symbol(" ");
 
-            // Create ListState and set cursor position manually
+            // Render the left panel (file list)
             let mut state = tui::widgets::ListState::default();
             state.select(Some(cursor_position));
             f.render_stateful_widget(list, chunks[0], &mut state);
 
-            // Upper Right Panel (Directory Contents)
+            // Upper Right Panel (Directory Contents or File Preview)
             let upper_right_panel = match &selected_file {
                 Some(file) => {
                     let full_path = current_dir.join(file);
                     if full_path.is_dir() {
                         let items = list_files(&full_path, show_hidden)
                             .unwrap_or_else(|_| vec!["<Empty>".to_string()]);
-                        let list = List::new(
+                        List::new(
                             items
                                 .into_iter()
                                 .map(ListItem::new)
@@ -150,23 +151,21 @@ fn main() -> Result<(), io::Error> {
                             Block::default()
                                 .borders(Borders::ALL)
                                 .title("Directory Contents"),
-                        );
-                        list
+                        )
                     } else {
                         let preview = preview_file(&full_path);
-                        let list = List::new(
+                        List::new(
                             preview
                                 .into_iter()
                                 .map(ListItem::new)
                                 .collect::<Vec<ListItem>>(),
                         )
-                        .block(Block::default().borders(Borders::ALL).title("File Preview"));
-                        list
+                        .block(Block::default().borders(Borders::ALL).title("File Preview"))
                     }
                 }
                 None => List::new(vec![]),
             };
-            f.render_widget(upper_right_panel, chunks[1]);
+            f.render_widget(upper_right_panel, right_chunks[0]);
 
             // TODO:
             // Lower Right Panel
@@ -330,36 +329,67 @@ fn open_file(file_path: &Path, opener_config: &HashMap<String, (String, String)>
 
 // Function to preview a file
 fn preview_file(file_path: &Path) -> Vec<String> {
-    // Attempt to preview the file with batcat (bat), falling back to cat if bat is unavailable
-    let output = match Command::new("batcat")
-        .arg("--style=plain")
-        .arg("--color=always")
-        .arg("--paging=never")
+    // Try `batcat` first
+    let output = Command::new("batcat")
+        .args([
+            "--style=plain",
+            "--color=always",
+            "--paging=never",
+            "--wrap=never",
+        ])
         .arg(file_path)
         .output()
-    {
-        Ok(output) => output,
-        Err(_) => {
-            // Fallback to using cat if bat fails
-            Command::new("cat")
-                .arg(file_path)
+        .or_else(|_| {
+            // Fallback to `cat` with `fold -w <width>` to enforce width restriction
+            Command::new("sh")
+                .arg("-c")
+                .arg(format!(
+                    "cat {} | fold -w {}",
+                    file_path.display(),
+                    get_half_terminal_width()
+                ))
                 .output()
-                .unwrap_or_else(|_| Output {
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
-                    status: std::process::ExitStatus::from_raw(0),
-                })
-        }
-    };
+        })
+        .unwrap_or_else(|_| Output {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            status: std::process::ExitStatus::from_raw(0),
+        });
 
-    // Check if the output has valid content
-    if !output.stdout.is_empty() {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .take(20)
-            .map(|line| line.to_string())
-            .collect()
-    } else {
-        vec!["<Failed to preview file>".to_string()]
+    // If output is empty, check if file exists and is readable
+    if output.stdout.is_empty() {
+        if !file_path.exists() {
+            return vec!["<File does not exist>".to_string()];
+        }
+        if fs::metadata(file_path).map(|m| m.len()).unwrap_or(0) == 0 {
+            return vec!["<Empty file>".to_string()];
+        }
+        return vec!["<Failed to preview file>".to_string()];
     }
+
+    // Convert output to lines, truncate to 20 lines, and return
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .take(20)
+        .map(|line| line.to_string())
+        .collect()
+}
+
+fn get_half_terminal_width() -> usize {
+    // Get terminal width using `tput cols`, default to 80 if it fails
+    let output = Command::new("tput")
+        .arg("cols")
+        .output()
+        .unwrap_or_else(|_| Output {
+            stdout: b"80".to_vec(),
+            stderr: Vec::new(),
+            status: std::process::ExitStatus::from_raw(0),
+        });
+
+    let width = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<usize>()
+        .unwrap_or(80);
+
+    width / 2
 }
