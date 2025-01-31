@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
@@ -179,21 +179,50 @@ fn main() -> Result<(), io::Error> {
         })?;
 
         // Handle input
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => break,
+        if let Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) = event::read()?
+        {
+            match (code, modifiers) {
+                // q to exit
+                (KeyCode::Char('q'), _) => break,
+                // Trigger redrawing on Ctrl + R
+                (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                    terminal.draw(|f| {
+                        let chunks = Layout::default()
+                            .direction(Direction::Horizontal)
+                            .constraints(
+                                [Constraint::Percentage(50), Constraint::Percentage(50)].as_ref(),
+                            )
+                            .split(f.size());
+
+                        let items: Vec<ListItem> = files
+                            .iter()
+                            .map(|file| ListItem::new(file.as_str())) // Use `as_str()` to convert `&String` to `&str`
+                            .collect();
+
+                        let list = List::new(items)
+                            .block(Block::default().borders(Borders::ALL).title("Files"))
+                            .highlight_style(Style::default().fg(Color::Yellow))
+                            .highlight_symbol(" ");
+
+                        let mut state = tui::widgets::ListState::default();
+                        state.select(Some(cursor_position));
+                        f.render_stateful_widget(list, chunks[0], &mut state);
+                    })?;
+                }
                 // Navigation with arrow keys and vim-like keys
-                KeyCode::Down | KeyCode::Char('j') => {
+                (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
                     if cursor_position < files.len().saturating_sub(1) {
                         cursor_position += 1;
                     }
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
                     if cursor_position > 0 {
                         cursor_position -= 1;
                     }
                 }
-                KeyCode::Right | KeyCode::Char('l') => {
+                (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
                     if let Some(selected_file) = files.get(cursor_position) {
                         let full_path = current_dir.join(selected_file);
                         if full_path.is_dir() {
@@ -203,15 +232,15 @@ fn main() -> Result<(), io::Error> {
                         }
                     }
                 }
-                KeyCode::Left | KeyCode::Char('h') => {
+                (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
                     if let Some(parent) = current_dir.parent() {
                         current_dir = parent.to_path_buf();
                         files = list_files(&current_dir, show_hidden)?;
                         cursor_position = 0;
                     }
                 }
-                // file Opener
-                KeyCode::Enter => {
+                // File Opener
+                (KeyCode::Enter, _) => {
                     if let Some(selected_file) = files.get(cursor_position) {
                         let full_path = current_dir.join(selected_file);
                         if !full_path.is_dir() {
@@ -220,7 +249,7 @@ fn main() -> Result<(), io::Error> {
                     }
                 }
                 // Toggle hidden files
-                KeyCode::Char('.') => {
+                (KeyCode::Char('.'), _) => {
                     show_hidden = !show_hidden;
                     files = list_files(&current_dir, show_hidden)?;
                     cursor_position = 0;
@@ -332,6 +361,7 @@ fn preview_file(file_path: &Path) -> Vec<String> {
     // Try `batcat` first
     let output = Command::new("batcat")
         .args([
+            "-n",
             "--style=plain",
             "--color=always",
             "--paging=never",
@@ -340,14 +370,10 @@ fn preview_file(file_path: &Path) -> Vec<String> {
         .arg(file_path)
         .output()
         .or_else(|_| {
-            // Fallback to `cat` with `fold -w <width>` to enforce width restriction
+            // Fallback to `cat` with line numbers using `nl`
             Command::new("sh")
                 .arg("-c")
-                .arg(format!(
-                    "cat {} | fold -w {}",
-                    file_path.display(),
-                    get_half_terminal_width()
-                ))
+                .arg(format!("nl {}", file_path.display()))
                 .output()
         })
         .unwrap_or_else(|_| Output {
@@ -373,23 +399,4 @@ fn preview_file(file_path: &Path) -> Vec<String> {
         .take(20)
         .map(|line| line.to_string())
         .collect()
-}
-
-fn get_half_terminal_width() -> usize {
-    // Get terminal width using `tput cols`, default to 80 if it fails
-    let output = Command::new("tput")
-        .arg("cols")
-        .output()
-        .unwrap_or_else(|_| Output {
-            stdout: b"80".to_vec(),
-            stderr: Vec::new(),
-            status: std::process::ExitStatus::from_raw(0),
-        });
-
-    let width = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<usize>()
-        .unwrap_or(80);
-
-    width / 2
 }
