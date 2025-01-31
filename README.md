@@ -43,8 +43,15 @@ cargo run -- --cwd-file=path.txt
 - [ ] Add file handling to operations.
 - [ ] Add support for file operations (copy, move, delete).
 - [ ] Add search functionality.
+- [ ] FZF integration.
 - [ ] Improve error handling and logging.
+- [ ] File format Icons
+- [ ] Add handles the creation of trash directories (specific to the OS) for deleted files.
+- [ ] Create necessary directories and configuration files (like .toml files) for storing settings, hotkeys, and logs.
+- [ ] checks whether it's the first time the application is being run, creating an initial setup file if necessary.
+- [ ] Implement a command-line interface with flags (using clap or structopt in Rust) to allow users to control various aspects of the file manager (e.g., enabling/disabling features, printing configuration paths).
+- [ ] Hotkey Management, user-defined keyboard shortcuts, allowing users to add missing hotkeys.
+- [ ] Update Check.
 - [ ] Customize themes and colors.
 - [ ] Image preview
-- [ ] File format Icons
 - [ ] Mouse support.
