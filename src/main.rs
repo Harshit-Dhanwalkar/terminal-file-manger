@@ -333,7 +333,18 @@ fn get_file_style(file: &str, opener_config: &HashMap<String, (String, String)>)
                 "yellow" => Some(Color::Yellow),
                 "orange" => Some(Color::Rgb(255, 165, 0)),
                 "purple" => Some(Color::Rgb(128, 0, 128)),
-                _ => Some(Color::White),
+                "pink" => Some(Color::Rgb(255, 192, 203)),
+                "brown" => Some(Color::Rgb(165, 42, 42)),
+                "gray" => Some(Color::Gray),
+                "darkgray" => Some(Color::DarkGray),
+                "lightblue" => Some(Color::Rgb(173, 216, 230)),
+                "lightgreen" => Some(Color::Rgb(144, 238, 144)),
+                "lightred" => Some(Color::Rgb(255, 182, 193)),
+                "lightyellow" => Some(Color::Rgb(255, 255, 224)),
+                "lightcyan" => Some(Color::Rgb(224, 255, 255)),
+                "lightmagenta" => Some(Color::Rgb(255, 224, 255)),
+                "lightorange" => Some(Color::Rgb(255, 200, 150)),
+                _ => Some(Color::White), // Default color for unknown extensions
             };
         }
     }

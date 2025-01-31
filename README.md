@@ -34,6 +34,7 @@ cargo run -- --cwd-file=path.txt
 | `←` or `h` | Navigate back to the parent directory |
 | `Enter`    | Opens the file                        |
 | `.`        | Toggle visibility of hidden files     |
+| `crlt-r`   | Redraw terminal UI                    |
 
 ## To-Do List
 

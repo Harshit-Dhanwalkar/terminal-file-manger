@@ -1,6 +1,8 @@
 [openers]
+# Text and Code Files
 txt = { opener = "nvim", color = "green" }
 py = { opener = "nvim", color = "magenta" }
+md = { opener = "nvim", color = "magenta" }
 rs = { opener = "nvim", color = "orange" }
 lua = { opener = "nvim", color = "green" }
 cpp = { opener = "nvim", color = "blue" }
@@ -8,6 +10,37 @@ tex = { opener = "nvim", color = "red" }
 html = { opener = "nvim", color = "cyan" }
 css = { opener = "nvim", color = "magenta" }
 js = { opener = "nvim", color = "yellow" }
+ts = { opener = "nvim", color = "blue" }
+java = { opener = "nvim", color = "red" }
+kt = { opener = "nvim", color = "orange" }
+go = { opener = "nvim", color = "cyan" }
+sh = { opener = "nvim", color = "green" }
+zsh = { opener = "nvim", color = "green" }
+json = { opener = "nvim", color = "yellow" }
+yaml = { opener = "nvim", color = "cyan" }
 toml = { opener = "nvim", color = "orange" }
+xml = { opener = "nvim", color = "red" }
+csv = { opener = "nvim", color = "green" }
+
+# Data and Binary Files
 ipynb = { opener = "code", color = "purple" }
 pdf = { opener = "zathura", color = "orange" }
+png = { opener = "sxiv", color = "blue" }
+jpg = { opener = "sxiv", color = "blue" }
+jpeg = { opener = "sxiv", color = "blue" }  # Fixed: Added missing quote
+gif = { opener = "sxiv", color = "blue" }   # Fixed: Added missing quote
+mp4 = { opener = "mpv", color = "purple" }
+mp3 = { opener = "mpv", color = "purple" }
+zip = { opener = "unzip", color = "yellow" }
+tar = { opener = "tar", color = "yellow" }
+gz = { opener = "tar", color = "yellow" }
+sqlite = { opener = "sqlite3", color = "cyan" }
+
+# Documents
+doc = { opener = "libreoffice", color = "blue" }
+docx = { opener = "libreoffice", color = "blue" }
+odt = { opener = "libreoffice", color = "blue" }
+xls = { opener = "libreoffice", color = "green" }
+xlsx = { opener = "libreoffice", color = "green" }
+ppt = { opener = "libreoffice", color = "red" }
+pptx = { opener = "libreoffice", color = "red" }
