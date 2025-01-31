@@ -6,6 +6,7 @@ use crossterm::{
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+// use std::fs::{self, DirEntry};
 use std::io;
 // use std::io::{self, Write};
 use std::os::unix::process::ExitStatusExt;
@@ -103,7 +104,7 @@ fn main() -> Result<(), io::Error> {
             // Split the left panel into upper and lower sections
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(10), Constraint::Percentage(80)].as_ref())
+                .constraints([Constraint::Percentage(7), Constraint::Percentage(83)].as_ref())
                 .split(chunks[0]);
 
             // Split the right panel into upper and lower sections
@@ -111,17 +112,21 @@ fn main() -> Result<(), io::Error> {
                 .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Percentage(10),
-                        Constraint::Percentage(70),
+                        Constraint::Percentage(7),
+                        Constraint::Percentage(73),
                         Constraint::Percentage(10),
                     ]
                     .as_ref(),
                 )
                 .split(chunks[1]);
 
-            // Top Left Panel
-            let upper_left_panel = List::new(vec![ListItem::new("To be updated later")])
-                .block(Block::default().borders(Borders::ALL).title("Newer Panel"));
+            // Upper Left Panel: Display the current working directory (pwd)
+            let current_dir_display = current_dir.to_string_lossy().into_owned();
+            let upper_left_panel = List::new(vec![ListItem::new(current_dir_display)]).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Current Directory"),
+            );
             f.render_widget(upper_left_panel, left_chunks[0]);
 
             // Bottom Left Panel (File Listing)
@@ -148,10 +153,21 @@ fn main() -> Result<(), io::Error> {
                 .highlight_style(Style::default().fg(Color::Yellow))
                 .highlight_symbol(" ");
 
-            // Render the bottom  left panel (file list)
             let mut state = tui::widgets::ListState::default();
             state.select(Some(cursor_position));
             f.render_stateful_widget(list, left_chunks[1], &mut state);
+
+            // Top Right Panel (dir size)
+            let size = calculate_dir_size(current_dir.as_path());
+            let size_str = format!("{:.2} MB", size as f64 / (1024.0 * 1024.0));
+            let top_right_panel = List::new(vec![ListItem::new(format!("Size: {}", size_str))])
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Directory Size"),
+                );
+
+            f.render_widget(top_right_panel, right_chunks[0]);
 
             // Middle Right Panel (Directory Contents or File Preview)
             let middle_right_panel = match &selected_file {
@@ -192,11 +208,6 @@ fn main() -> Result<(), io::Error> {
                 None => List::new(vec![]),
             };
             f.render_widget(middle_right_panel, right_chunks[1]);
-
-            // Top Right Panel
-            let top_right_panel = List::new(vec![ListItem::new("To be updated")])
-                .block(Block::default().borders(Borders::ALL).title("New Panel"));
-            f.render_widget(top_right_panel, right_chunks[0]);
 
             // Bottom Right Panel
             let bottom_right_panel = List::new(vec![ListItem::new("To be updated")])
@@ -436,4 +447,23 @@ fn preview_file(file_path: &Path) -> Vec<String> {
         .take(20)
         .map(|line| line.to_string())
         .collect()
+}
+
+// To calculate dir size
+fn calculate_dir_size(path: &Path) -> u64 {
+    let path = Path::new(path);
+    let mut total_size = 0;
+
+    if path.is_dir() {
+        for entry in fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            let entry_path = entry.path();
+            if entry_path.is_file() {
+                total_size += entry_path.metadata().unwrap().len();
+            } else if entry_path.is_dir() {
+                total_size += calculate_dir_size(entry_path.as_path());
+            }
+        }
+    }
+    total_size
 }
