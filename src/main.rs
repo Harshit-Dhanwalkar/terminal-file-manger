@@ -109,7 +109,7 @@ fn main() -> Result<(), io::Error> {
             let items: Vec<ListItem> = files
                 .iter()
                 .map(|file| {
-                    let style = match get_file_style(file, &opener_config) {
+                    let style = match get_file_style(&file, &opener_config) {
                         Some(color) => Style::default().fg(color),
                         None => Style::default().fg(Color::White),
                     };
@@ -141,13 +141,20 @@ fn main() -> Result<(), io::Error> {
                     if full_path.is_dir() {
                         let items = list_files(&full_path, show_hidden)
                             .unwrap_or_else(|_| vec!["<Empty>".to_string()]);
-                        List::new(
-                            items
-                                .into_iter()
-                                .map(ListItem::new)
-                                .collect::<Vec<ListItem>>(),
-                        )
-                        .block(
+
+                        // Color based on file extension
+                        let items_with_color: Vec<ListItem> = items
+                            .into_iter()
+                            .map(|file| {
+                                let style = match get_file_style(&file, &opener_config) {
+                                    Some(color) => Style::default().fg(color),
+                                    None => Style::default().fg(Color::White),
+                                };
+                                ListItem::new(file).style(style) // Adding the file name directly here
+                            })
+                            .collect();
+
+                        List::new(items_with_color).block(
                             Block::default()
                                 .borders(Borders::ALL)
                                 .title("Directory Contents"),
@@ -165,6 +172,7 @@ fn main() -> Result<(), io::Error> {
                 }
                 None => List::new(vec![]),
             };
+
             f.render_widget(upper_right_panel, right_chunks[0]);
 
             // TODO:

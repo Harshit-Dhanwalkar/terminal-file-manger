@@ -27,8 +27,8 @@ ipynb = { opener = "code", color = "purple" }
 pdf = { opener = "zathura", color = "orange" }
 png = { opener = "sxiv", color = "blue" }
 jpg = { opener = "sxiv", color = "blue" }
-jpeg = { opener = "sxiv", color = "blue" }  # Fixed: Added missing quote
-gif = { opener = "sxiv", color = "blue" }   # Fixed: Added missing quote
+jpeg = { opener = "sxiv", color = "blue" }
+gif = { opener = "sxiv", color = "blue" }
 mp4 = { opener = "mpv", color = "purple" }
 mp3 = { opener = "mpv", color = "purple" }
 zip = { opener = "unzip", color = "yellow" }
