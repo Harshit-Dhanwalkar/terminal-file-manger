@@ -37,6 +37,7 @@ fn main() -> Result<(), io::Error> {
         );
         return Ok(());
     }
+    //
     // Load opener configuration
     let opener_config = load_opener_config(&opener_config_path)?;
     println!("Loaded opener.toml configuration");
@@ -93,19 +94,37 @@ fn main() -> Result<(), io::Error> {
 
         // Draw UI
         terminal.draw(|f| {
-            // Split the terminal into two panels: left (50%) and right (50%)
+            // Split the terminal into two main panels: left (50%) and right (50%)
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(f.size());
 
-            // Further split the right panel into upper and lower sections
+            // Split the left panel into upper and lower sections
+            let left_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(10), Constraint::Percentage(80)].as_ref())
+                .split(chunks[0]);
+
+            // Split the right panel into upper and lower sections
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(75), Constraint::Percentage(25)].as_ref())
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(70),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
                 .split(chunks[1]);
 
-            // Left Panel (File Listing)
+            // Top Left Panel
+            let upper_left_panel = List::new(vec![ListItem::new("To be updated later")])
+                .block(Block::default().borders(Borders::ALL).title("Newer Panel"));
+            f.render_widget(upper_left_panel, left_chunks[0]);
+
+            // Bottom Left Panel (File Listing)
             let items: Vec<ListItem> = files
                 .iter()
                 .map(|file| {
@@ -129,13 +148,13 @@ fn main() -> Result<(), io::Error> {
                 .highlight_style(Style::default().fg(Color::Yellow))
                 .highlight_symbol(" ");
 
-            // Render the left panel (file list)
+            // Render the bottom  left panel (file list)
             let mut state = tui::widgets::ListState::default();
             state.select(Some(cursor_position));
-            f.render_stateful_widget(list, chunks[0], &mut state);
+            f.render_stateful_widget(list, left_chunks[1], &mut state);
 
-            // Upper Right Panel (Directory Contents or File Preview)
-            let upper_right_panel = match &selected_file {
+            // Middle Right Panel (Directory Contents or File Preview)
+            let middle_right_panel = match &selected_file {
                 Some(file) => {
                     let full_path = current_dir.join(file);
                     if full_path.is_dir() {
@@ -172,18 +191,17 @@ fn main() -> Result<(), io::Error> {
                 }
                 None => List::new(vec![]),
             };
+            f.render_widget(middle_right_panel, right_chunks[1]);
 
-            f.render_widget(upper_right_panel, right_chunks[0]);
-
-            // TODO:
-            // Lower Right Panel
-            // let lower_right_panel =
-            //     List::new(vec![ListItem::new(format!("Time {}", current_time))])
-            //         .block(Block::default().borders(Borders::ALL).title("Extra Panel"));
-            // f.render_widget(lower_right_panel, right_chunks[1]);
-            let lower_right_panel = List::new(vec![ListItem::new("To be updated")])
+            // Top Right Panel
+            let top_right_panel = List::new(vec![ListItem::new("To be updated")])
                 .block(Block::default().borders(Borders::ALL).title("New Panel"));
-            f.render_widget(lower_right_panel, right_chunks[1]);
+            f.render_widget(top_right_panel, right_chunks[0]);
+
+            // Bottom Right Panel
+            let bottom_right_panel = List::new(vec![ListItem::new("To be updated")])
+                .block(Block::default().borders(Borders::ALL).title("New Panel"));
+            f.render_widget(bottom_right_panel, right_chunks[2]);
         })?;
 
         // Handle input
