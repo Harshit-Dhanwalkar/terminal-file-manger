@@ -25,16 +25,16 @@ cargo run -- --cwd-file=path.txt
 
 ### Key Bindings
 
-| Key        | Action                                |
-| ---------- | ------------------------------------- |
-| `q`        | Quit the file manager                 |
-| `↓` or `j` | Move down in the file list            |
-| `↑` or `k` | Move up in the file list              |
-| `→` or `l` | Enter the selected directory          |
-| `←` or `h` | Navigate back to the parent directory |
-| `Enter`    | Opens the file                        |
-| `.`        | Toggle visibility of hidden files     |
-| `crlt-r`   | Redraw terminal UI                    |
+| Key                           | Action                                |
+| ----------------------------- | ------------------------------------- |
+| <kbd>q</kbd>                  | Quit the file manager                 |
+| <kbd>↓</kbd> or </kbd>j</kbd> | Move down in the file list            |
+| <kbd>↑</kbd> or </kbd>k</kbd> | Move up in the file list              |
+| <kbd>→</kbd> or </kbd>l</kbd> | Enter the selected directory          |
+| <kbd>←</kbd> or </kbd>h</kbd> | Navigate back to the parent directory |
+| <kbd>Enter</kbd>              | Opens the file                        |
+| <kbd>.</kbd>                  | Toggle visibility of hidden files     |
+| <kbd>crlt-r</kbd>             | Redraw terminal UI                    |
 
 ## To-Do List
 

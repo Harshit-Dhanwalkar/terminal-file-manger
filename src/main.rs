@@ -1,10 +1,3 @@
-// use ncurses::*;
-// use std::cmp;
-// use std::fs::File;
-// use std::ops::{Add, Mul};
-// use std::process;
-// use std::sync::atomic::{AtomicBool, Ordering};
-
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
@@ -216,9 +209,11 @@ fn main() -> Result<(), io::Error> {
             f.render_widget(middle_right_panel, right_chunks[1]);
 
             // Bottom right panel (to-do list)
-            let todo_items = get_todo_items(&todos);
-            let bottom_right_panel = List::new(todo_items)
-                .block(Block::default().borders(Borders::ALL).title("To-Do List"));
+            let bottom_right_panel = List::new(vec![ListItem::new("To be updated")])
+                .block(Block::default().borders(Borders::ALL).title("New Panel"));
+            // let todo_items = get_todo_items(&todos);
+            // let bottom_right_panel = List::new(todo_items)
+            //     .block(Block::default().borders(Borders::ALL).title("To-Do List"));
             f.render_widget(bottom_right_panel, right_chunks[2]);
         })?;
 
@@ -509,78 +504,4 @@ fn search_files(dir: &Path, keyword: &str) -> io::Result<Vec<PathBuf>> {
         }
     }
     Ok(results)
-}
-
-// todo list functions
-fn draw_file_list(files: &[PathBuf], keyword: Option<&str>) {
-    for file in files {
-        let file_name = file.file_name().unwrap().to_string_lossy();
-
-        if let Some(k) = keyword {
-            if file_name.contains(k) {
-                // Highlight match in yellow
-                let parts: Vec<&str> = file_name.split(k).collect();
-                print!("{}", parts[0]);
-                print!("{}", SetForegroundColor(crossterm::style::Color::Yellow));
-                print!("{}", k);
-                print!("{}", SetForegroundColor(crossterm::style::Color::Reset));
-
-                if parts.len() > 1 {
-                    print!("{}", parts[1]);
-                }
-            } else {
-                print!("{}", file_name);
-            }
-        } else {
-            print!("{}", file_name);
-        }
-
-        println!();
-    }
-}
-
-fn load_state(file_path: &str) -> io::Result<Vec<String>> {
-    if Path::new(file_path).exists() {
-        let file = fs::File::open(file_path)?;
-        let reader = io::BufReader::new(file);
-        let tasks: Vec<String> = reader.lines().filter_map(Result::ok).collect();
-        Ok(tasks)
-    } else {
-        Ok(vec!["No tasks".to_string()])
-    }
-}
-
-fn save_state(file_path: &str, todos: &[String]) -> io::Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file_path)?;
-    for task in todos {
-        writeln!(file, "{}", task)?;
-    }
-    Ok(())
-}
-
-fn toggle_status(todos: &mut Vec<String>, index: usize) {
-    if let Some(todo) = todos.get_mut(index) {
-        if todo.starts_with("[ ]") {
-            *todo = format!("[x] {}", todo[4..].trim());
-        } else if todo.starts_with("[x]") {
-            *todo = format!("[ ] {}", todo[4..].trim());
-        }
-    }
-}
-
-fn remove_task(todos: &mut Vec<String>, index: usize) {
-    if index < todos.len() {
-        todos.remove(index);
-    }
-}
-
-fn add_task(todos: &mut Vec<String>, task: String) {
-    todos.push(format!("[ ] {}", task));
-}
-
-fn get_todo_items(todos: &[String]) -> Vec<ListItem> {
-    todos.iter().map(|t| ListItem::new(t.clone())).collect()
 }
