@@ -1,18 +1,20 @@
+// use crossterm::style::SetForegroundColor;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
-    style::SetForegroundColor,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
 };
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs;
+// use std::fs::File, OpenOptions};
 // use std::fs::{self, DirEntry, File};
-// use std::io;
-use std::io::{self, stdin, BufRead, Write};
+use std::io::{self, BufRead, Write};
+// use std::io::{self, stdin, BufRead, ErrorKind, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::Duration;
 use toml::Value;
 use tui::{
     backend::CrosstermBackend,
@@ -22,8 +24,43 @@ use tui::{
     Terminal,
 };
 // use chrono::Local; // For date and time
+use libc;
+use std::sync::atomic::{AtomicBool, Ordering};
+// use ncurses::*;
+// use std::cmp;
+// use std::ops::{Add, Mul};
+// use std::process;
+use termion::event::Key;
+use termion::input::TermRead;
 
-fn main() -> Result<(), io::Error> {
+// SIGINT Handler (Ctrl+C)
+static CTRLC: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn callback(_signum: i32) {
+    CTRLC.store(true, Ordering::SeqCst);
+    // CTRLC.store(true, Ordering::Relaxed);
+}
+
+fn init_signal_handler() {
+    unsafe {
+        libc::signal(libc::SIGINT, callback as usize);
+    }
+}
+
+fn poll_signal() -> bool {
+    CTRLC.load(Ordering::SeqCst)
+    // CTRLC.swap(false, Ordering::Relaxed)
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize signal handler for SIGINT (Ctrl+C)
+    init_signal_handler();
+    let stdin = io::stdin();
+    let mut stdin_clone = stdin.lock();
+    let mut keys = stdin_clone.keys();
+    let mut stdout = io::stdout();
+    let mut search_query = String::new();
+
     // Parse arguments
     let project_dir = env::current_dir().unwrap();
     let path_file = project_dir.join("src").join("path.txt");
@@ -46,11 +83,9 @@ fn main() -> Result<(), io::Error> {
 
     // Setup terminal
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
+    // let mut stdout = io::stdout();
     execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(io::stdout());
-    //TEST:
-    // let mut terminal = tui::Terminal::new(CrosstermBackend::new(stdout))?;
     let mut terminal = Terminal::new(backend)?;
 
     let mut cwd_file: Option<PathBuf> = None;
@@ -92,10 +127,10 @@ fn main() -> Result<(), io::Error> {
     // Get current date and time
     // let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Load initial state of todos
-    let mut todos = load_state("todo_list.txt").unwrap_or_else(|_| vec!["No tasks".to_string()]);
+    let mut quit = false;
 
-    loop {
+    while !quit && !poll_signal() {
+        // loop {
         // Get the selected file or directory
         let selected_file = files.get(cursor_position).cloned();
 
@@ -218,119 +253,108 @@ fn main() -> Result<(), io::Error> {
         })?;
 
         // Handle input
-        if let Event::Key(KeyEvent {
-            code, modifiers, ..
-        }) = event::read()?
-        {
-            match (code, modifiers) {
-                // q to exit
-                (KeyCode::Char('q'), _) => break,
-                // Trigger redrawing on Ctrl + R
-                (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
-                    terminal.draw(|f| {
-                        let chunks = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints(
-                                [Constraint::Percentage(50), Constraint::Percentage(50)].as_ref(),
-                            )
-                            .split(f.size());
+        //// q to quit
+        if let Some(Ok(Key::Char('q'))) = keys.next() {
+            quit = true;
+        }
 
-                        let items: Vec<ListItem> = files
-                            .iter()
-                            .map(|file| ListItem::new(file.as_str())) // Use `as_str()` to convert `&String` to `&str`
-                            .collect();
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(KeyEvent {
+                code, modifiers, ..
+            }) = event::read()?
+            {
+                match (code, modifiers) {
+                    // q to quit
+                    // (KeyCode::Char('q'), _) => break,
+                    // Trigger redrawing on Ctrl + R
+                    (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                        terminal.draw(|f| {
+                            let chunks = Layout::default()
+                                .direction(Direction::Horizontal)
+                                .constraints(
+                                    [Constraint::Percentage(50), Constraint::Percentage(50)]
+                                        .as_ref(),
+                                )
+                                .split(f.size());
 
-                        let list = List::new(items)
-                            .block(Block::default().borders(Borders::ALL).title("Files"))
-                            .highlight_style(Style::default().fg(TuiColor::Yellow))
-                            .highlight_symbol(" ");
+                            let items: Vec<ListItem> = files
+                                .iter()
+                                .map(|file| ListItem::new(file.as_str()))
+                                .collect();
 
-                        let mut state = tui::widgets::ListState::default();
-                        state.select(Some(cursor_position));
-                        f.render_stateful_widget(list, chunks[0], &mut state);
-                    })?;
-                }
-                // Navigation with arrow keys and vim-like keys
-                (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
-                    if cursor_position < files.len().saturating_sub(1) {
-                        cursor_position += 1;
+                            let list = List::new(items)
+                                .block(Block::default().borders(Borders::ALL).title("Files"))
+                                .highlight_style(Style::default().fg(TuiColor::Yellow))
+                                .highlight_symbol(" ");
+
+                            let mut state = tui::widgets::ListState::default();
+                            state.select(Some(cursor_position));
+                            f.render_stateful_widget(list, chunks[0], &mut state);
+                        })?;
                     }
-                }
-                (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
-                    if cursor_position > 0 {
-                        cursor_position -= 1;
+                    // Navigation with arrow keys and vim-like keys
+                    (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
+                        if cursor_position < files.len().saturating_sub(1) {
+                            cursor_position += 1;
+                        }
                     }
-                }
-                (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
-                    if let Some(selected_file) = files.get(cursor_position) {
-                        let full_path = current_dir.join(selected_file);
-                        if full_path.is_dir() {
-                            current_dir = full_path;
+                    (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
+                        if cursor_position > 0 {
+                            cursor_position -= 1;
+                        }
+                    }
+                    (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
+                        if let Some(selected_file) = files.get(cursor_position) {
+                            let full_path = current_dir.join(selected_file);
+                            if full_path.is_dir() {
+                                current_dir = full_path;
+                                files = list_files(&current_dir, show_hidden)?;
+                                cursor_position = 0;
+                            }
+                        }
+                    }
+                    (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
+                        if let Some(parent) = current_dir.parent() {
+                            current_dir = parent.to_path_buf();
                             files = list_files(&current_dir, show_hidden)?;
                             cursor_position = 0;
                         }
                     }
-                }
-                (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
-                    if let Some(parent) = current_dir.parent() {
-                        current_dir = parent.to_path_buf();
+                    // File Opener
+                    (KeyCode::Enter, _) => {
+                        if let Some(selected_file) = files.get(cursor_position) {
+                            let full_path = current_dir.join(selected_file);
+                            if !full_path.is_dir() {
+                                open_file(&full_path, &opener_config);
+                            }
+                        }
+                    }
+                    // Toggle hidden files
+                    (KeyCode::Char('.'), _) => {
+                        show_hidden = !show_hidden;
                         files = list_files(&current_dir, show_hidden)?;
                         cursor_position = 0;
                     }
-                }
-                // File Opener
-                (KeyCode::Enter, _) => {
-                    if let Some(selected_file) = files.get(cursor_position) {
-                        let full_path = current_dir.join(selected_file);
-                        if !full_path.is_dir() {
-                            open_file(&full_path, &opener_config);
+                    // Search file
+                    (KeyCode::Char('/'), _) => {
+                        execute!(&mut stdout, EnterAlternateScreen)?;
+                        print!("Search: ");
+                        stdout.flush()?;
+
+                        BufRead::read_line(&mut stdin_clone, &mut search_query)?;
+                        search_query = search_query.trim().to_string();
+
+                        if !search_query.is_empty() {
+                            files = search_files(&current_dir, &search_query)?
+                                .into_iter()
+                                .map(|path| path.to_string_lossy().into_owned())
+                                .collect();
                         }
+                        cursor_position = 0;
                     }
+                    // TODO: Add todolist keymaps
+                    _ => {}
                 }
-                // Toggle hidden files
-                (KeyCode::Char('.'), _) => {
-                    show_hidden = !show_hidden;
-                    files = list_files(&current_dir, show_hidden)?;
-                    cursor_position = 0;
-                }
-                // Search file
-                (KeyCode::Char('/'), _) => {
-                    let mut search_query = String::new();
-                    execute!(&mut stdout, EnterAlternateScreen)?;
-                    print!("Search: ");
-                    stdout.flush()?;
-
-                    stdin().read_line(&mut search_query)?;
-                    search_query = search_query.trim().to_string();
-
-                    if !search_query.is_empty() {
-                        files = search_files(&current_dir, &search_query)?
-                            .into_iter()
-                            .map(|path| path.to_string_lossy().into_owned())
-                            .collect();
-                    }
-                    cursor_position = 0;
-                }
-                // Add a new task
-                (KeyCode::Char('a'), _) => {
-                    print!("Enter task: ");
-                    stdout.flush()?;
-                    let mut task = String::new();
-                    stdin().read_line(&mut task)?;
-                    add_task(&mut todos, task.trim().to_string());
-                    save_state("todo_list.txt", &todos)?;
-                }
-                // Toggle task completion status
-                (KeyCode::Char('t'), _) => {
-                    toggle_status(&mut todos, cursor_position);
-                    save_state("todo_list.txt", &todos)?;
-                }
-                // Remove task
-                (KeyCode::Char('r'), _) => {
-                    remove_task(&mut todos, cursor_position);
-                    save_state("todo_list.txt", &todos)?;
-                }
-                _ => {}
             }
         }
     }
@@ -348,6 +372,10 @@ fn main() -> Result<(), io::Error> {
             eprintln!("Failed to write to cwd file: {}", e);
         }
     }
+
+    // quit function
+    writeln!(stdout, "Exiting...").unwrap();
+    stdout.flush().unwrap();
 
     Ok(())
 }
