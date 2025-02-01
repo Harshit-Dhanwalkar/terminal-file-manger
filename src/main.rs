@@ -1,14 +1,22 @@
+// use ncurses::*;
+// use std::cmp;
+// use std::fs::File;
+// use std::ops::{Add, Mul};
+// use std::process;
+// use std::sync::atomic::{AtomicBool, Ordering};
+
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
+    style::SetForegroundColor,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
 };
 use std::collections::HashMap;
 use std::env;
-use std::fs;
-// use std::fs::{self, DirEntry};
-use std::io;
-// use std::io::{self, Write};
+use std::fs::{self, OpenOptions};
+// use std::fs::{self, DirEntry, File};
+// use std::io;
+use std::io::{self, stdin, BufRead, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -16,7 +24,7 @@ use toml::Value;
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color as TuiColor, Style},
     widgets::{Block, Borders, List, ListItem},
     Terminal,
 };
@@ -38,7 +46,7 @@ fn main() -> Result<(), io::Error> {
         );
         return Ok(());
     }
-    //
+
     // Load opener configuration
     let opener_config = load_opener_config(&opener_config_path)?;
     println!("Loaded opener.toml configuration");
@@ -47,7 +55,9 @@ fn main() -> Result<(), io::Error> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, crossterm::terminal::EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    let backend = CrosstermBackend::new(io::stdout());
+    //TEST:
+    // let mut terminal = tui::Terminal::new(CrosstermBackend::new(stdout))?;
     let mut terminal = Terminal::new(backend)?;
 
     let mut cwd_file: Option<PathBuf> = None;
@@ -82,12 +92,15 @@ fn main() -> Result<(), io::Error> {
         }
         _ => std::env::current_dir()?,
     };
-    let mut show_hidden = true;
+    let mut show_hidden = false;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
 
     // Get current date and time
     // let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Load initial state of todos
+    let mut todos = load_state("todo_list.txt").unwrap_or_else(|_| vec!["No tasks".to_string()]);
 
     loop {
         // Get the selected file or directory
@@ -107,7 +120,7 @@ fn main() -> Result<(), io::Error> {
                 .constraints([Constraint::Percentage(7), Constraint::Percentage(83)].as_ref())
                 .split(chunks[0]);
 
-            // Split the right panel into upper and lower sections
+            // Split the right panel into top, middle and bottom sections
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(
@@ -135,7 +148,7 @@ fn main() -> Result<(), io::Error> {
                 .map(|file| {
                     let style = match get_file_style(&file, &opener_config) {
                         Some(color) => Style::default().fg(color),
-                        None => Style::default().fg(Color::White),
+                        None => Style::default().fg(TuiColor::White),
                     };
                     ListItem::new(
                         Path::new(&file)
@@ -150,23 +163,16 @@ fn main() -> Result<(), io::Error> {
 
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("Files"))
-                .highlight_style(Style::default().fg(Color::Yellow))
+                .highlight_style(Style::default().fg(TuiColor::Yellow))
                 .highlight_symbol(" ");
 
             let mut state = tui::widgets::ListState::default();
             state.select(Some(cursor_position));
             f.render_stateful_widget(list, left_chunks[1], &mut state);
 
-            // Top Right Panel (dir size)
-            let size = calculate_dir_size(current_dir.as_path());
-            let size_str = format!("{:.2} MB", size as f64 / (1024.0 * 1024.0));
-            let top_right_panel = List::new(vec![ListItem::new(format!("Size: {}", size_str))])
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Directory Size"),
-                );
-
+            // Top Right Panel
+            let top_right_panel = List::new(vec![ListItem::new("To be updated")])
+                .block(Block::default().borders(Borders::ALL).title("New Panel"));
             f.render_widget(top_right_panel, right_chunks[0]);
 
             // Middle Right Panel (Directory Contents or File Preview)
@@ -183,9 +189,9 @@ fn main() -> Result<(), io::Error> {
                             .map(|file| {
                                 let style = match get_file_style(&file, &opener_config) {
                                     Some(color) => Style::default().fg(color),
-                                    None => Style::default().fg(Color::White),
+                                    None => Style::default().fg(TuiColor::White),
                                 };
-                                ListItem::new(file).style(style) // Adding the file name directly here
+                                ListItem::new(file).style(style)
                             })
                             .collect();
 
@@ -209,9 +215,10 @@ fn main() -> Result<(), io::Error> {
             };
             f.render_widget(middle_right_panel, right_chunks[1]);
 
-            // Bottom Right Panel
-            let bottom_right_panel = List::new(vec![ListItem::new("To be updated")])
-                .block(Block::default().borders(Borders::ALL).title("New Panel"));
+            // Bottom right panel (to-do list)
+            let todo_items = get_todo_items(&todos);
+            let bottom_right_panel = List::new(todo_items)
+                .block(Block::default().borders(Borders::ALL).title("To-Do List"));
             f.render_widget(bottom_right_panel, right_chunks[2]);
         })?;
 
@@ -240,7 +247,7 @@ fn main() -> Result<(), io::Error> {
 
                         let list = List::new(items)
                             .block(Block::default().borders(Borders::ALL).title("Files"))
-                            .highlight_style(Style::default().fg(Color::Yellow))
+                            .highlight_style(Style::default().fg(TuiColor::Yellow))
                             .highlight_symbol(" ");
 
                         let mut state = tui::widgets::ListState::default();
@@ -290,6 +297,43 @@ fn main() -> Result<(), io::Error> {
                     show_hidden = !show_hidden;
                     files = list_files(&current_dir, show_hidden)?;
                     cursor_position = 0;
+                }
+                // Search file
+                (KeyCode::Char('/'), _) => {
+                    let mut search_query = String::new();
+                    execute!(&mut stdout, EnterAlternateScreen)?;
+                    print!("Search: ");
+                    stdout.flush()?;
+
+                    stdin().read_line(&mut search_query)?;
+                    search_query = search_query.trim().to_string();
+
+                    if !search_query.is_empty() {
+                        files = search_files(&current_dir, &search_query)?
+                            .into_iter()
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .collect();
+                    }
+                    cursor_position = 0;
+                }
+                // Add a new task
+                (KeyCode::Char('a'), _) => {
+                    print!("Enter task: ");
+                    stdout.flush()?;
+                    let mut task = String::new();
+                    stdin().read_line(&mut task)?;
+                    add_task(&mut todos, task.trim().to_string());
+                    save_state("todo_list.txt", &todos)?;
+                }
+                // Toggle task completion status
+                (KeyCode::Char('t'), _) => {
+                    toggle_status(&mut todos, cursor_position);
+                    save_state("todo_list.txt", &todos)?;
+                }
+                // Remove task
+                (KeyCode::Char('r'), _) => {
+                    remove_task(&mut todos, cursor_position);
+                    save_state("todo_list.txt", &todos)?;
                 }
                 _ => {}
             }
@@ -358,30 +402,33 @@ fn load_opener_config(config_path: &Path) -> Result<HashMap<String, (String, Str
     Ok(openers)
 }
 
-fn get_file_style(file: &str, opener_config: &HashMap<String, (String, String)>) -> Option<Color> {
+fn get_file_style(
+    file: &str,
+    opener_config: &HashMap<String, (String, String)>,
+) -> Option<TuiColor> {
     if let Some(extension) = Path::new(file).extension().and_then(|ext| ext.to_str()) {
         if let Some((_, color)) = opener_config.get(extension) {
             return match color.as_str() {
-                "green" => Some(Color::Green),
-                "blue" => Some(Color::Blue),
-                "red" => Some(Color::Red),
-                "cyan" => Some(Color::Cyan),
-                "magenta" => Some(Color::Magenta),
-                "yellow" => Some(Color::Yellow),
-                "orange" => Some(Color::Rgb(255, 165, 0)),
-                "purple" => Some(Color::Rgb(128, 0, 128)),
-                "pink" => Some(Color::Rgb(255, 192, 203)),
-                "brown" => Some(Color::Rgb(165, 42, 42)),
-                "gray" => Some(Color::Gray),
-                "darkgray" => Some(Color::DarkGray),
-                "lightblue" => Some(Color::Rgb(173, 216, 230)),
-                "lightgreen" => Some(Color::Rgb(144, 238, 144)),
-                "lightred" => Some(Color::Rgb(255, 182, 193)),
-                "lightyellow" => Some(Color::Rgb(255, 255, 224)),
-                "lightcyan" => Some(Color::Rgb(224, 255, 255)),
-                "lightmagenta" => Some(Color::Rgb(255, 224, 255)),
-                "lightorange" => Some(Color::Rgb(255, 200, 150)),
-                _ => Some(Color::White), // Default color for unknown extensions
+                "green" => Some(TuiColor::Green),
+                "blue" => Some(TuiColor::Blue),
+                "red" => Some(TuiColor::Red),
+                "cyan" => Some(TuiColor::Cyan),
+                "magenta" => Some(TuiColor::Magenta),
+                "yellow" => Some(TuiColor::Yellow),
+                "orange" => Some(TuiColor::Rgb(255, 165, 0)),
+                "purple" => Some(TuiColor::Rgb(128, 0, 128)),
+                "pink" => Some(TuiColor::Rgb(255, 192, 203)),
+                "brown" => Some(TuiColor::Rgb(165, 42, 42)),
+                "gray" => Some(TuiColor::Gray),
+                "darkgray" => Some(TuiColor::DarkGray),
+                "lightblue" => Some(TuiColor::Rgb(173, 216, 230)),
+                "lightgreen" => Some(TuiColor::Rgb(144, 238, 144)),
+                "lightred" => Some(TuiColor::Rgb(255, 182, 193)),
+                "lightyellow" => Some(TuiColor::Rgb(255, 255, 224)),
+                "lightcyan" => Some(TuiColor::Rgb(224, 255, 255)),
+                "lightmagenta" => Some(TuiColor::Rgb(255, 224, 255)),
+                "lightorange" => Some(TuiColor::Rgb(255, 200, 150)),
+                _ => Some(TuiColor::White), // Default color for unknown extensions
             };
         }
     }
@@ -449,21 +496,91 @@ fn preview_file(file_path: &Path) -> Vec<String> {
         .collect()
 }
 
-// To calculate dir size
-fn calculate_dir_size(path: &Path) -> u64 {
-    let path = Path::new(path);
-    let mut total_size = 0;
-
-    if path.is_dir() {
-        for entry in fs::read_dir(path).unwrap() {
-            let entry = entry.unwrap();
-            let entry_path = entry.path();
-            if entry_path.is_file() {
-                total_size += entry_path.metadata().unwrap().len();
-            } else if entry_path.is_dir() {
-                total_size += calculate_dir_size(entry_path.as_path());
+// File search
+fn search_files(dir: &Path, keyword: &str) -> io::Result<Vec<PathBuf>> {
+    let mut results = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.contains(keyword) {
+                results.push(path);
             }
         }
     }
-    total_size
+    Ok(results)
+}
+
+// todo list functions
+fn draw_file_list(files: &[PathBuf], keyword: Option<&str>) {
+    for file in files {
+        let file_name = file.file_name().unwrap().to_string_lossy();
+
+        if let Some(k) = keyword {
+            if file_name.contains(k) {
+                // Highlight match in yellow
+                let parts: Vec<&str> = file_name.split(k).collect();
+                print!("{}", parts[0]);
+                print!("{}", SetForegroundColor(crossterm::style::Color::Yellow));
+                print!("{}", k);
+                print!("{}", SetForegroundColor(crossterm::style::Color::Reset));
+
+                if parts.len() > 1 {
+                    print!("{}", parts[1]);
+                }
+            } else {
+                print!("{}", file_name);
+            }
+        } else {
+            print!("{}", file_name);
+        }
+
+        println!();
+    }
+}
+
+fn load_state(file_path: &str) -> io::Result<Vec<String>> {
+    if Path::new(file_path).exists() {
+        let file = fs::File::open(file_path)?;
+        let reader = io::BufReader::new(file);
+        let tasks: Vec<String> = reader.lines().filter_map(Result::ok).collect();
+        Ok(tasks)
+    } else {
+        Ok(vec!["No tasks".to_string()])
+    }
+}
+
+fn save_state(file_path: &str, todos: &[String]) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+    for task in todos {
+        writeln!(file, "{}", task)?;
+    }
+    Ok(())
+}
+
+fn toggle_status(todos: &mut Vec<String>, index: usize) {
+    if let Some(todo) = todos.get_mut(index) {
+        if todo.starts_with("[ ]") {
+            *todo = format!("[x] {}", todo[4..].trim());
+        } else if todo.starts_with("[x]") {
+            *todo = format!("[ ] {}", todo[4..].trim());
+        }
+    }
+}
+
+fn remove_task(todos: &mut Vec<String>, index: usize) {
+    if index < todos.len() {
+        todos.remove(index);
+    }
+}
+
+fn add_task(todos: &mut Vec<String>, task: String) {
+    todos.push(format!("[ ] {}", task));
+}
+
+fn get_todo_items(todos: &[String]) -> Vec<ListItem> {
+    todos.iter().map(|t| ListItem::new(t.clone())).collect()
 }
