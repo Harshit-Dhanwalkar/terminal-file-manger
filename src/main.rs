@@ -15,7 +15,10 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 use toml::Value;
 use tui::{
     backend::CrosstermBackend,
@@ -32,14 +35,101 @@ extern "C" fn callback(_signum: i32) {
     CTRLC.store(true, Ordering::SeqCst);
 }
 
-fn init_signal_handler() {
-    unsafe {
-        libc::signal(libc::SIGINT, callback as usize);
+struct BackgroundLoader {
+    current_dir: PathBuf,
+    show_hidden: bool,
+    result: Arc<Mutex<Option<Vec<String>>>>,
+}
+
+impl BackgroundLoader {
+    fn new(dir: PathBuf, show_hidden: bool) -> Self {
+        Self {
+            current_dir: dir,
+            show_hidden,
+            result: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn start(&self) {
+        let dir = self.current_dir.clone();
+        let show_hidden = self.show_hidden;
+        let result = Arc::clone(&self.result);
+
+        thread::spawn(move || match list_files(&dir, show_hidden) {
+            Ok(files) => {
+                let mut res = result.lock().unwrap();
+                *res = Some(files);
+            }
+            Err(_) => {
+                let mut res = result.lock().unwrap();
+                *res = Some(vec!["<Error loading directory>".to_string()]);
+            }
+        });
+    }
+
+    fn get_result(&self) -> Option<Vec<String>> {
+        let result = self.result.lock().unwrap();
+        result.clone()
     }
 }
 
-fn poll_signal() -> bool {
-    CTRLC.load(Ordering::SeqCst)
+struct AppState {
+    files: Vec<String>,
+    loading: bool,
+    last_load_time: Instant,
+}
+
+#[derive(Default)]
+struct FileMetadataCache {
+    metadata: HashMap<PathBuf, (std::fs::Metadata, std::time::SystemTime)>,
+}
+
+impl FileMetadataCache {
+    fn get_metadata(&mut self, path: &Path) -> Option<&std::fs::Metadata> {
+        let current_time = std::time::SystemTime::now();
+
+        // Clean old entries first
+        self.clean_old_entries(current_time);
+
+        // Check if we already have the metadata
+        if self.metadata.contains_key(path) {
+            return self.metadata.get(path).map(|(meta, _)| meta);
+        }
+
+        // If not, get it from the filesystem
+        match std::fs::metadata(path) {
+            Ok(meta) => {
+                let path_buf = path.to_path_buf();
+                self.metadata.insert(path_buf, (meta, current_time));
+                self.metadata.get(path).map(|(m, _)| m)
+            }
+            Err(_) => None,
+        }
+    }
+
+    fn clean_old_entries(&mut self, current_time: std::time::SystemTime) {
+        let mut to_remove = Vec::new();
+
+        for (key, (_, time)) in &self.metadata {
+            if current_time.duration_since(*time).unwrap_or_default() > Duration::from_secs(5) {
+                to_remove.push(key.clone());
+            }
+        }
+
+        for key in to_remove {
+            self.metadata.remove(&key);
+        }
+    }
+
+    fn is_dir(&mut self, path: &Path) -> bool {
+        self.get_metadata(path).map(|m| m.is_dir()).unwrap_or(false)
+    }
+
+    fn is_file(&mut self, path: &Path) -> bool {
+        self.get_metadata(path)
+            .map(|m| m.is_file())
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -110,7 +200,7 @@ fn add_todo() -> Option<Todo> {
     let _ = stdout.flush();
 
     let mut new_task = String::new();
-    let mut stdin = io::stdin();
+    let stdin = io::stdin();
     if stdin.read_line(&mut new_task).is_err() {
         // Restore terminal state on error
         let _ = enable_raw_mode();
@@ -200,7 +290,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut show_hidden = false;
     let mut dir_cache = DirectoryCache::default();
-    let mut files = dir_cache.get_entries(&current_dir, show_hidden)?.clone();
+    let mut metadata_cache = FileMetadataCache::default();
+
+    let mut app_state = AppState {
+        files: vec!["<Loading...>".to_string()],
+        loading: true,
+        last_load_time: Instant::now(),
+    };
+
+    let mut background_loader: Option<BackgroundLoader> = None;
+    let mut last_dir = current_dir.clone();
+
+    background_loader = Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+    background_loader.as_ref().unwrap().start();
+
     let mut cursor_position: usize = 0;
     let mut preview_cache: Option<(PathBuf, Vec<String>)> = None;
     let mut last_selected_file_path: Option<PathBuf> = None;
@@ -213,11 +316,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut quit = false;
 
     while !quit && !poll_signal() {
-        let selected_file = files.get(cursor_position).cloned();
+        if let Some(loader) = &background_loader {
+            if let Some(result) = loader.get_result() {
+                app_state.files = result;
+                app_state.loading = false;
+                background_loader = None;
+
+                if cursor_position >= app_state.files.len() && !app_state.files.is_empty() {
+                    cursor_position = app_state.files.len() - 1;
+                }
+            }
+        }
+
+        let current_dir_changed = current_dir != last_dir;
+        let debounce_time = if app_state.loading {
+            Duration::from_millis(100) // Shorter debounce when already loading
+        } else {
+            Duration::from_millis(300) // Normal debounce
+        };
+
+        if current_dir_changed && app_state.last_load_time.elapsed() > debounce_time {
+            app_state.loading = true;
+            app_state.last_load_time = Instant::now();
+            last_dir = current_dir.clone();
+
+            background_loader = Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+            background_loader.as_ref().unwrap().start();
+
+            app_state.files = vec!["<Loading...>".to_string()];
+            cursor_position = 0;
+        }
+
+        let selected_file = app_state.files.get(cursor_position).cloned();
 
         if let Some(file_name) = &selected_file {
             let full_path = current_dir.join(file_name);
-            if full_path.is_file() && last_selected_file_path.as_ref() != Some(&full_path) {
+            if metadata_cache.is_file(&full_path)
+                && last_selected_file_path.as_ref() != Some(&full_path)
+            {
                 preview_cache = Some((full_path.clone(), preview_file(&full_path)));
                 last_selected_file_path = Some(full_path);
             }
@@ -257,23 +393,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             f.render_widget(upper_left_panel, left_chunks[0]);
 
             // Bottom Left Panel (File Listing)
-            let items: Vec<ListItem> = files
-                .iter()
-                .map(|file| {
-                    let style = match get_file_style(&file, &opener_config) {
-                        Some(color) => Style::default().fg(color),
-                        None => Style::default().fg(TuiColor::White),
-                    };
-                    ListItem::new(
-                        Path::new(&file)
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned(),
-                    )
-                    .style(style)
-                })
-                .collect();
+            let items: Vec<ListItem> = if app_state.loading {
+                vec![ListItem::new("<Loading directory...>")
+                    .style(Style::default().fg(TuiColor::Yellow))]
+            } else {
+                app_state
+                    .files
+                    .iter()
+                    .map(|file| {
+                        let style = match get_file_style(&file, &opener_config) {
+                            Some(color) => Style::default().fg(color),
+                            None => Style::default().fg(TuiColor::White),
+                        };
+                        ListItem::new(file.clone()).style(style)
+                    })
+                    .collect()
+            };
 
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title("Files"))
@@ -292,11 +427,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let middle_right_panel = match &selected_file {
                 Some(file) => {
                     let full_path = current_dir.join(file);
-                    if full_path.is_dir() {
-                        let items = list_files(&full_path, show_hidden)
-                            .unwrap_or_else(|_| vec!["<Empty>".to_string()]);
+                    if metadata_cache.is_dir(&full_path) {
+                        // Show directory contents preview
+                        let preview_items = match list_files(&full_path, show_hidden) {
+                            Ok(items) => items,
+                            Err(_) => vec!["<Error loading>".to_string()],
+                        };
 
-                        let items_with_color: Vec<ListItem> = items
+                        let items_with_color: Vec<ListItem> = preview_items
                             .into_iter()
                             .map(|file| {
                                 let style = match get_file_style(&file, &opener_config) {
@@ -313,6 +451,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .title("Directory Contents"),
                         )
                     } else {
+                        // File preview code remains the same
                         if let Some((cached_path, cached_preview)) = &preview_cache {
                             if cached_path == &full_path {
                                 List::new(
@@ -355,7 +494,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             f.render_stateful_widget(todo_list, right_chunks[2], &mut todo_list_state);
         })?;
 
-        if event::poll(Duration::from_millis(100))? {
+        if event::poll(Duration::from_millis(16))? {
             if let Event::Key(KeyEvent {
                 code, modifiers, ..
             }) = event::read()?
@@ -369,7 +508,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         todo!()
                     }
                     (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
-                        if cursor_position < files.len().saturating_sub(1) {
+                        if cursor_position < app_state.files.len().saturating_sub(1) {
                             cursor_position += 1;
                         }
                     }
@@ -379,12 +518,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     (KeyCode::Right, _) | (KeyCode::Char('l'), _) => {
-                        if let Some(selected_file) = files.get(cursor_position) {
+                        if let Some(selected_file) = app_state.files.get(cursor_position) {
                             let full_path = current_dir.join(selected_file);
-                            if full_path.is_dir() {
+                            if metadata_cache.is_dir(&full_path) {
                                 current_dir = full_path;
-                                // files = list_files(&current_dir, show_hidden)?;
-                                files = dir_cache.get_entries(&current_dir, show_hidden)?.clone();
+                                app_state.loading = true;
+                                app_state.last_load_time = Instant::now();
+                                last_dir = current_dir.clone();
+
+                                background_loader =
+                                    Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+                                background_loader.as_ref().unwrap().start();
+
+                                app_state.files = vec!["<Loading...>".to_string()];
                                 cursor_position = 0;
                             }
                         }
@@ -392,23 +538,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
                         if let Some(parent) = current_dir.parent() {
                             current_dir = parent.to_path_buf();
-                            // files = list_files(&current_dir, show_hidden)?;
-                            files = dir_cache.get_entries(&current_dir, show_hidden)?.clone();
+                            app_state.loading = true;
+                            app_state.last_load_time = Instant::now();
+                            last_dir = current_dir.clone();
+
+                            background_loader =
+                                Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+                            background_loader.as_ref().unwrap().start();
+
+                            app_state.files = vec!["<Loading...>".to_string()];
                             cursor_position = 0;
                         }
                     }
                     (KeyCode::Enter, _) => {
-                        if let Some(selected_file) = files.get(cursor_position) {
+                        if let Some(selected_file) = app_state.files.get(cursor_position) {
                             let full_path = current_dir.join(selected_file);
-                            if !full_path.is_dir() {
+                            if metadata_cache.is_file(&full_path) {
                                 open_file(&full_path, &opener_config);
                             }
                         }
                     }
                     (KeyCode::Char('.'), _) => {
                         show_hidden = !show_hidden;
-                        // files = list_files(&current_dir, show_hidden)?;
-                        files = dir_cache.get_entries(&current_dir, show_hidden)?.clone();
+                        app_state.loading = true;
+                        app_state.last_load_time = Instant::now();
+
+                        background_loader =
+                            Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+                        background_loader.as_ref().unwrap().start();
+
+                        app_state.files = vec!["<Loading...>".to_string()];
                         cursor_position = 0;
                     }
                     (KeyCode::Char('/'), _) => {
@@ -425,15 +584,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             search_query = search_input.trim().to_string();
 
                             if !search_query.is_empty() {
-                                files = search_files(&current_dir, &search_query)?
-                                    .into_iter()
-                                    .map(|path| {
-                                        path.file_name().unwrap().to_string_lossy().into_owned()
-                                    })
-                                    .collect();
+                                match search_files(&current_dir, &search_query) {
+                                    Ok(search_results) => {
+                                        app_state.files = search_results
+                                            .into_iter()
+                                            .map(|path| {
+                                                path.file_name()
+                                                    .unwrap()
+                                                    .to_string_lossy()
+                                                    .into_owned()
+                                            })
+                                            .collect();
+                                    }
+                                    Err(_) => {
+                                        app_state.files = vec!["<Search error>".to_string()];
+                                    }
+                                }
                             } else {
                                 // Reset to normal listing if search is empty
-                                files = dir_cache.get_entries(&current_dir, show_hidden)?.clone();
+                                app_state.loading = true;
+                                app_state.last_load_time = Instant::now();
+
+                                background_loader =
+                                    Some(BackgroundLoader::new(current_dir.clone(), show_hidden));
+                                background_loader.as_ref().unwrap().start();
+
+                                app_state.files = vec!["<Loading...>".to_string()];
                             }
                         }
 
@@ -490,13 +666,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, Show)?;
     if let Some(cwd_file) = cwd_file {
-        if let Err(e) = fs::write(&cwd_file, current_dir.to_string_lossy().as_bytes()) {
-            eprintln!("Failed to write to cwd file: {}", e);
-        }
+        let _ = fs::write(&cwd_file, current_dir.to_string_lossy().as_bytes());
     }
-    writeln!(io::stdout(), "Exiting...").unwrap();
-    io::stdout().flush().unwrap();
     Ok(())
+}
+
+fn init_signal_handler() {
+    unsafe {
+        libc::signal(libc::SIGINT, callback as usize);
+    }
+}
+
+fn poll_signal() -> bool {
+    CTRLC.load(Ordering::SeqCst)
 }
 
 fn list_files(dir: &Path, show_hidden: bool) -> io::Result<Vec<String>> {
