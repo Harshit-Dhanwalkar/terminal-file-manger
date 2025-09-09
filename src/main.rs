@@ -56,8 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize signal handler for SIGINT (Ctrl+C)
     init_signal_handler();
     let stdin = io::stdin();
-    let mut stdin_clone = stdin.lock();
-    let mut keys = stdin_clone.keys();
+    let mut keys = stdin.lock().keys();
     let mut stdout = io::stdout();
     let mut search_query = String::new();
 
@@ -78,7 +77,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Load opener configuration
-    let opener_config = load_opener_config(&opener_config_path)?;
+    let opener_config = match load_opener_config(&opener_config_path) {
+        Ok(config) => {
+            println!("Loaded opener.toml configuration");
+            config
+        }
+        Err(e) => {
+            eprintln!("Failed to load opener.toml: {}", e);
+            return Ok(());
+        }
+    };
     println!("Loaded opener.toml configuration");
 
     // Setup terminal
@@ -123,6 +131,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut show_hidden = false;
     let mut files = list_files(&current_dir, show_hidden)?;
     let mut cursor_position: usize = 0;
+    let mut preview_cache: Option<(PathBuf, Vec<String>)> = None;
+    let mut last_selected_file_path: Option<PathBuf> = None;
 
     // Get current date and time
     // let current_time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -133,6 +143,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // loop {
         // Get the selected file or directory
         let selected_file = files.get(cursor_position).cloned();
+
+        if let Some(file_name) = &selected_file {
+            let full_path = current_dir.join(file_name);
+            if full_path.is_file() && last_selected_file_path.as_ref() != Some(&full_path) {
+                preview_cache = Some((full_path.clone(), preview_file(&full_path)));
+                last_selected_file_path = Some(full_path);
+            }
+        }
 
         // Draw UI
         terminal.draw(|f| {
@@ -229,14 +247,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .title("Directory Contents"),
                         )
                     } else {
-                        let preview = preview_file(&full_path);
-                        List::new(
-                            preview
-                                .into_iter()
-                                .map(ListItem::new)
-                                .collect::<Vec<ListItem>>(),
-                        )
-                        .block(Block::default().borders(Borders::ALL).title("File Preview"))
+                        // Use cached preview
+                        if let Some((cached_path, cached_preview)) = &preview_cache {
+                            if cached_path == &full_path {
+                                List::new(
+                                    cached_preview
+                                        .iter()
+                                        .map(|line| ListItem::new(line.as_str()))
+                                        .collect::<Vec<ListItem>>(),
+                                )
+                                .block(Block::default().borders(Borders::ALL).title("File Preview"))
+                            } else {
+                                List::new(vec![ListItem::new("<Loading preview...>".to_string())])
+                                    .block(
+                                        Block::default()
+                                            .borders(Borders::ALL)
+                                            .title("File Preview"),
+                                    )
+                            }
+                        } else {
+                            List::new(vec![ListItem::new("<Loading preview...>".to_string())])
+                                .block(Block::default().borders(Borders::ALL).title("File Preview"))
+                        }
                     }
                 }
                 None => List::new(vec![]),
@@ -265,7 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 match (code, modifiers) {
                     // q to quit
-                    // (KeyCode::Char('q'), _) => break,
+                    (KeyCode::Char('q'), _) => break,
                     // Trigger redrawing on Ctrl + R
                     (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
                         terminal.draw(|f| {
@@ -341,7 +373,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         print!("Search: ");
                         stdout.flush()?;
 
-                        BufRead::read_line(&mut stdin_clone, &mut search_query)?;
+                        let mut search_stdin = io::stdin().lock();
+                        BufRead::read_line(&mut search_stdin, &mut search_query)?;
                         search_query = search_query.trim().to_string();
 
                         if !search_query.is_empty() {
@@ -399,7 +432,13 @@ fn list_files(dir: &Path, show_hidden: bool) -> io::Result<Vec<String>> {
 // Function to load `opener.toml`
 fn load_opener_config(config_path: &Path) -> Result<HashMap<String, (String, String)>, io::Error> {
     let toml_contents = fs::read_to_string(config_path)?;
-    let value: Value = toml_contents.parse::<Value>().expect("Invalid TOML format");
+    let value: Value = match toml_contents.parse::<Value>() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error parsing opener.toml: {}", e);
+            return Ok(HashMap::new());
+        }
+    };
 
     let openers = value
         .get("openers")
