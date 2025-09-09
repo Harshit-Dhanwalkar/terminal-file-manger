@@ -241,16 +241,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let opener_config = match load_opener_config(&opener_config_path) {
+    let opener_config = Arc::new(match load_opener_config(&opener_config_path) {
         Ok(config) => {
             println!("Loaded opener.toml configuration");
+            println!("Number of openers loaded: {}", config.len());
+            for (ext, (opener, color)) in &config {
+                println!("Configured: .{} -> {} (color: {})", ext, opener, color);
+            }
             config
         }
         Err(e) => {
             eprintln!("Failed to load opener.toml: {}", e);
             return Ok(());
         }
-    };
+    });
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;
@@ -737,7 +741,7 @@ fn load_opener_config(config_path: &Path) -> Result<HashMap<String, (String, Str
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            (key.clone(), (opener, color))
+            (key.to_lowercase(), (opener, color))
         })
         .collect();
 
@@ -745,11 +749,12 @@ fn load_opener_config(config_path: &Path) -> Result<HashMap<String, (String, Str
 }
 
 fn get_file_style(
-    file: &str,
-    opener_config: &HashMap<String, (String, String)>,
+    filename: &str,
+    opener_config: &Arc<HashMap<String, (String, String)>>,
 ) -> Option<TuiColor> {
-    if let Some(extension) = Path::new(file).extension().and_then(|ext| ext.to_str()) {
-        if let Some((_, color)) = opener_config.get(extension) {
+    if let Some(extension) = Path::new(filename).extension().and_then(|ext| ext.to_str()) {
+        let extension_lower = extension.to_lowercase();
+        if let Some((_, color)) = opener_config.get(&extension_lower) {
             return match color.as_str() {
                 "green" => Some(TuiColor::Green),
                 "blue" => Some(TuiColor::Blue),
@@ -777,18 +782,40 @@ fn get_file_style(
     None
 }
 
-fn open_file(file_path: &Path, opener_config: &HashMap<String, (String, String)>) {
+fn open_file(file_path: &Path, opener_config: &Arc<HashMap<String, (String, String)>>) {
+    if opener_config.is_empty() {
+        eprintln!("ERROR: Opener configuration is empty!");
+        return;
+    }
+
     if let Some(extension) = file_path.extension().and_then(|ext| ext.to_str()) {
-        if let Some((command, _)) = opener_config.get(extension) {
+        // Debug output
+        println!("Trying to open file: {}", file_path.display());
+        println!("File extension: .{}", extension);
+
+        // lowercase for case-insensitive lookup
+        let extension_lower = extension.to_lowercase();
+        println!("Looking for extension: .{}", extension_lower);
+
+        if let Some((command, _)) = opener_config.get(&extension_lower) {
+            println!("Found opener: {} for .{} files", command, extension_lower);
             let _ = Command::new(command)
                 .arg(file_path)
                 .spawn()
                 .expect("Failed to open file");
         } else {
             eprintln!("No opener configured for .{} files", extension);
+            // Debug: print all available extensions
+            eprintln!(
+                "Available extensions: {:?}",
+                opener_config.keys().collect::<Vec<_>>()
+            );
         }
     } else {
-        eprintln!("Could not determine file extension.");
+        eprintln!(
+            "Could not determine file extension for: {}",
+            file_path.display()
+        );
     }
 }
 
